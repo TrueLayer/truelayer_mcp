@@ -4,7 +4,13 @@ This project provides a Truelayer Model Context Protocol (MCP) server that enabl
 
 > ⚠️ **DISCLAIMER** ⚠️
 > 
-> This project is intended for demonstration purposes only. It is not officially supported or maintained by TrueLayer. Use at your own risk. This integration may break with API changes and should not be used in production environments.
+> This project is intended for demonstration purposes only. It is not officially supported or maintained by TrueLayer.
+> Use at your own risk. 
+> This integration may break with API changes and should not be used in production environments.
+> 
+> Also, given that AI assistants may not always produce deterministic behaviors, and for safe and isolated testing, we strongly recommend using the MCP server in the TrueLayer Sandbox environment."
+
+
 
 ## Features
 
