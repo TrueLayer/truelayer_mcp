@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { generateAccessToken, getPayment, createPayout, createPaymentLink, ListTransactions } from "./truelayer.js";
+import { getPayment, createPayout, createPaymentLink, ListTransactions } from "./truelayer.js";
 import { v4 as uuidv4 } from 'uuid';
 import { CLIENT_ID, MERCHANT_ACCOUNT_ID } from "./auth.js";
 
@@ -37,54 +37,14 @@ server.tool(
 )
 
 server.tool(
-	"get-truelayer-access-token",
-	"Generate TrueLayer access token",
-	{},
-	async ({ }) => {
-		try {
-			const accessToken = await generateAccessToken();
-			if (!accessToken) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "Failed to retrieve TrueLayer access token",
-						},
-					],
-				};
-			} else {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `TrueLayer access token: ${accessToken.access_token}`,
-						},
-					],
-				};
-			}
-		} catch (error) {
-			return {
-				content: [
-					{
-						type: "text",
-						text: "Failed to generate TrueLayer token: " + error,
-					},
-				],
-			};
-		}
-	}
-)
-
-server.tool(
 	"get-truelayer-payment",
 	"Get payment details from TrueLayer API",
 	{
 		paymentId: z.string().describe("Payment ID to retrieve"),
-		accessToken: z.string().describe("TrueLayer access token"),
 	},
-	async ({ paymentId, accessToken }) => {
+	async ({ paymentId }) => {
 		try {
-			const payment = await getPayment(paymentId, accessToken);
+			const payment = await getPayment(paymentId);
 
 			return {
 				content: [
@@ -111,7 +71,6 @@ server.tool(
 	"create-truelayer-payout",
 	"Create a new payout using TrueLayer API",
 	{
-		accessToken: z.string().describe("TrueLayer access token"),
 		currency: z.string().describe("Currency code (e.g., GBP)"),
 		amount_in_minor: z.number().describe("Amount in minor currency units"),
 		merchant_account_id: z.string().describe("merchant account"),
@@ -127,7 +86,7 @@ server.tool(
 			reference: z.string().optional().describe("Payment reference")
 		})
 	},
-	async ({ accessToken, currency, merchant_account_id, amount_in_minor, beneficiary }) => {
+	async ({ currency, merchant_account_id, amount_in_minor, beneficiary }) => {
 		try {
 			const payoutRequest = {
 				currency,
@@ -136,7 +95,7 @@ server.tool(
 				beneficiary
 			};
 
-			const payout = await createPayout(accessToken, payoutRequest);
+			const payout = await createPayout(payoutRequest);
 
 			return {
 				content: [
@@ -164,11 +123,10 @@ server.tool(
 	"create-truelayer-payment-link",
 	"Create a new payment link using TrueLayer API",
 	{
-		accessToken: z.string().describe("TrueLayer access token"),
 		amount_in_minor: z.number().describe("Amount in minor currency units"),
 		merchant_account_id: z.string().describe("Merchant account ID"),
 	},
-	async ({ accessToken, amount_in_minor, merchant_account_id }) => {
+	async ({ amount_in_minor, merchant_account_id }) => {
 		try {
 			const paymentLinkRequest = {
 				type: "single_payment",
@@ -203,7 +161,7 @@ server.tool(
 				},
 			};
 
-			const paymentLink = await createPaymentLink(accessToken, paymentLinkRequest);
+			const paymentLink = await createPaymentLink(paymentLinkRequest);
 
 			return {
 				content: [
@@ -228,25 +186,34 @@ server.tool(
 
 server.tool(
 	"list_transactions",
-	"Get at list of transactions for a merchant account",
+	"Get a list of transactions for a merchant account",
 	{
 		from: z.string().describe("Start date for transactions (YYYY-MM-DDTHH:MM:SS±HHMM)"),
 		to: z.string().describe("End date for transactions (YYYY-MM-DDTHH:MM:SS±HHMM)"),
 		merchant_account_id: z.string().describe("Merchant account ID"),
-		access_token: z.string().describe("TrueLayer access token"),
 		cursor: z.string().optional().describe("Cursor for pagination"),
 	},
-	async ({ from, to, merchant_account_id, access_token, cursor }) => {
-
-		let transactions = await ListTransactions(from, to, merchant_account_id, access_token, cursor);
-		return {
-			content: [
-				{
-					type: "text",
-					text: `Transactions: ${JSON.stringify(transactions)}`,
-				},
-			],
-		};
+	async ({ from, to, merchant_account_id, cursor }) => {
+		try {
+			let transactions = await ListTransactions(from, to, merchant_account_id, cursor);
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Transactions: ${JSON.stringify(transactions)}`,
+					},
+				],
+			};
+		} catch (error) {
+			return {
+				content: [
+					{
+						type: "text",
+						text: "Failed to list transactions: " + error
+					}
+				]
+			};
+		}
 	}
 )
 

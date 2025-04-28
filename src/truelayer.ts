@@ -3,9 +3,39 @@ import { v4 as uuidv4 } from 'uuid';
 import { KID, PRIVATE_KEY_PEM, CLIENT_ID, CLIENT_SECRET, AUTH_URI, BASE_URI } from "./auth.js";
 type AccessResponse = {
 	access_token: string;
-	token_type: string;
 	expires_in: number;
-	scope: string;
+	token_type: string;
+}
+
+// Token cache to avoid unnecessary token requests
+const tokenCache = {
+	token: null as string | null,
+	expiresAt: 0, // timestamp when the token expires
+};
+
+// Check if token is valid, with a buffer of 60 seconds to avoid edge cases
+const isTokenValid = (): boolean => {
+	return (
+		tokenCache.token !== null &&
+		tokenCache.expiresAt > Date.now() + 60000 // 60 second buffer
+	);
+};
+
+// Get cached token or generate a new one if needed
+export async function getAccessToken(): Promise<string> {
+	if (isTokenValid()) {
+		return tokenCache.token!;
+	}
+
+	const tokenResponse = await generateAccessToken();
+	tokenCache.token = tokenResponse.access_token;
+
+	// Calculate expiration time in milliseconds
+	// Use the expires_in from the response or fallback to 30 minutes (1800 seconds)
+	const expiresIn = tokenResponse.expires_in || 1800;
+	tokenCache.expiresAt = Date.now() + (expiresIn * 1000);
+
+	return tokenCache.token;
 }
 
 // Make the request using native fetch
@@ -62,12 +92,13 @@ export async function generateAccessToken(): Promise<AccessResponse> {
 
 export async function getPayment(
 	paymentId: string,
-	accessToken: string,
 ): Promise<any> {
+	const access_token = await getAccessToken();
+
 	const response = await fetch(`${BASE_URI}/v3/payouts/${paymentId}`, {
 		method: 'GET',
 		headers: {
-			'Authorization': `Bearer ${accessToken}`,
+			'Authorization': `Bearer ${access_token}`,
 			'Accept': 'application/json; charset=UTF-8'
 		}
 	});
@@ -95,9 +126,9 @@ export interface PayoutRequest {
 
 
 export async function createPayout(
-	accessToken: string,
 	payoutRequest: PayoutRequest,
 ): Promise<any> {
+	const access_token = await getAccessToken();
 	const path = "/v3/payouts";
 
 	// Convert body to string for signing
@@ -106,7 +137,7 @@ export async function createPayout(
 
 	// Headers that will be included in the signature
 	const headers = {
-		'Authorization': `Bearer ${accessToken}`,
+		'Authorization': `Bearer ${access_token}`,
 		'Content-Type': 'application/json; charset=UTF-8',
 		'Accept': 'application/json; charset=UTF-8',
 		'Idempotency-Key': idempotencyKey
@@ -132,8 +163,6 @@ export async function createPayout(
 	});
 
 	return await response.json();
-
-
 }
 
 export interface PaymentLinkRequest {
@@ -170,16 +199,16 @@ export interface PaymentLinkRequest {
 }
 
 export async function createPaymentLink(
-	accessToken: string,
 	paymentLinkRequest: PaymentLinkRequest
 ): Promise<any> {
+	const access_token = await getAccessToken();
 	const path = "/v3/payment-links";
 
 	// Generate idempotency key
 	const idempotencyKey = uuidv4();
 
 	const headers = {
-		'Authorization': `Bearer ${accessToken}`,
+		'Authorization': `Bearer ${access_token}`,
 		'Content-Type': 'application/json; charset=UTF-8',
 		'Accept': 'application/json; charset=UTF-8',
 		'Idempotency-Key': idempotencyKey
@@ -213,9 +242,10 @@ export async function ListTransactions(
 	from: string,
 	to: string,
 	merchant_account_id: string,
-	access_token: string,
 	cursor?: string
 ): Promise<any> {
+	const access_token = await getAccessToken();
+
 	const params = new URLSearchParams();
 	params.append('from', from);
 	params.append('to', to);

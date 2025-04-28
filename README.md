@@ -1,6 +1,10 @@
- # TrueLayer MCP Integration for Claude
+# TrueLayer MCP Integration for Claude
 
 This project provides a Truelayer Model Context Protocol (MCP) server that enables Claude AI to interact with TrueLayer's financial APIs. It allows Claude to perform various banking and payment operations through TrueLayer's services.
+
+> ⚠️ **DISCLAIMER** ⚠️
+> 
+> This project is intended for demonstration purposes only. It is not officially supported or maintained by TrueLayer. Use at your own risk. This integration may break with API changes and should not be used in production environments.
 
 ## Features
 
