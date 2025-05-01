@@ -1,6 +1,9 @@
 import * as tlSigning from "truelayer-signing";
 import { v4 as uuidv4 } from 'uuid';
 import { KID, PRIVATE_KEY_PEM, CLIENT_ID, CLIENT_SECRET, AUTH_URI, BASE_URI } from "./auth.js";
+
+const USER_AGENT = 'truelayer-mcp/1.0.0';
+
 type AccessResponse = {
 	access_token: string;
 	expires_in: number;
@@ -52,7 +55,8 @@ export async function generateAccessToken(): Promise<AccessResponse> {
 
 	// Headers that will be included in the signature
 	const headers = {
-		'Content-Type': 'application/x-www-form-urlencoded'
+		'Content-Type': 'application/x-www-form-urlencoded',
+		'User-Agent': USER_AGENT
 	};
 
 	// Create the TrueLayer signature
@@ -99,7 +103,8 @@ export async function getPayment(
 		method: 'GET',
 		headers: {
 			'Authorization': `Bearer ${access_token}`,
-			'Accept': 'application/json; charset=UTF-8'
+			'Accept': 'application/json; charset=UTF-8',
+			'User-Agent': USER_AGENT
 		}
 	});
 
@@ -140,7 +145,8 @@ export async function createPayout(
 		'Authorization': `Bearer ${access_token}`,
 		'Content-Type': 'application/json; charset=UTF-8',
 		'Accept': 'application/json; charset=UTF-8',
-		'Idempotency-Key': idempotencyKey
+		'Idempotency-Key': idempotencyKey,
+		'User-Agent': USER_AGENT
 	};
 
 	// Create the TrueLayer signature
@@ -211,7 +217,8 @@ export async function createPaymentLink(
 		'Authorization': `Bearer ${access_token}`,
 		'Content-Type': 'application/json; charset=UTF-8',
 		'Accept': 'application/json; charset=UTF-8',
-		'Idempotency-Key': idempotencyKey
+		'Idempotency-Key': idempotencyKey,
+		'User-Agent': USER_AGENT
 	};
 
 	// Create the TrueLayer signature
@@ -260,7 +267,8 @@ export async function ListTransactions(
 		method: 'GET',
 		headers: {
 			'Authorization': `Bearer ${access_token}`,
-			'Accept': 'application/json; charset=UTF-8'
+			'Accept': 'application/json; charset=UTF-8',
+			'User-Agent': USER_AGENT
 		},
 	});
 	const data = await response.json();
