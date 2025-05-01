@@ -130,7 +130,7 @@ server.tool(
 		try {
 			const paymentLinkRequest = {
 				type: "single_payment",
-				expires_at: "2025-04-03T09:49:30.540Z",
+				expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Expires in 24 hrs
 				payment_configuration: {
 					currency: "GBP",
 					amount_in_minor,
