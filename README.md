@@ -100,7 +100,6 @@ Replace `/path/to/truelayer_mcp` with the actual path to this project on your sy
 
 Once configured, you can ask Claude to perform TrueLayer operations. Here are some example prompts:
 
-- "Generate a TrueLayer access token for me."
 - "Create a payout of £100 to account number 12345678 with sort code 01-02-03."
 - "Generate a payment link for £50."
 - "List all transactions between 2023-01-01 and 2023-01-31."
@@ -112,7 +111,6 @@ When you ask Claude about these operations, it will use the MCP server to execut
 The MCP server exposes these tools to Claude:
 
 - `get-merchant-account`: Retrieve merchant account details
-- `get-truelayer-access-token`: Generate a TrueLayer access token
 - `get-truelayer-payment`: Get details of a specific payment
 - `create-truelayer-payout`: Create a new payout to an external account
 - `create-truelayer-payment-link`: Create a payment link for bank transfers
