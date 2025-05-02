@@ -11,7 +11,7 @@ This project provides a Truelayer Model Context Protocol (MCP) server that enabl
 > Use at your own risk. 
 > This integration may break with API changes and should not be used in production environments.
 > 
-> Also, given that AI assistants may not always produce deterministic behaviors, and for safe and isolated testing, we strongly recommend using the MCP server in the TrueLayer Sandbox environment.
+> Also, given that AI assistants may not always produce deterministic behaviors, and for safe and isolated testing, you may only make use of the MCP server in the TrueLayer Sandbox environment.
 >
 > By using this MCP server with an external LLM you are trusting an external third party with the handling of the data retrieved from the TrueLayer API.
 
