@@ -6,13 +6,11 @@ An experimental project connecting TrueLayer APIs and an AI assistant, like Clau
 This project provides a Truelayer Model Context Protocol (MCP) server that enables an AI assistant, like Claude AI, to interact with TrueLayer's financial APIs. It allows the AI assistant to perform various banking and payment operations through TrueLayer's services.
 
 > ⚠️ **DISCLAIMER** ⚠️
-> 
-> This project is intended for demonstration purposes only. It is not officially supported or maintained by TrueLayer.
-> Use at your own risk. 
-> This integration may break with API changes and should not be used in production environments.
-> 
-> Also, given that AI assistants may not always produce deterministic behaviors, and for safe and isolated testing, you may only make use of the MCP server in the TrueLayer Sandbox environment.
->
+
+> This project is for demonstration purposes only. It is not officially supported or maintained by TrueLayer, does not form a part of the services we contractually provide you with and we are not responsible for the outcome of your use.
+> Use at your own risk.
+> This integration may break with API changes.
+
 > By using this MCP server with an external LLM you are trusting an external third party with the handling of the data retrieved from the TrueLayer API.
 
 
