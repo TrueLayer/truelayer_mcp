@@ -20,6 +20,8 @@ The integration allows an AI assistant to execute some of the TrueLayer actions 
 
 These functions allow you to perform common payment operations like retrieving account information, creating payment links for customers, sending payouts to beneficiaries, and reviewing transaction history.
 
+Given that AI assistants may not always produce deterministic behaviors, and for safe and isolated testing, we recommend testing the MCP server in the TrueLayer Sandbox environment.
+
 Here are specific TrueLayer functions that an AI assistant can call for you once the MCP server is installed:
 
 - Get merchant account details
