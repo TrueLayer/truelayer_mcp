@@ -117,3 +117,19 @@ The MCP server exposes these tools:
 - `truelayer-create-payout`: Create a new payout to an external account
 - `truelayer-create-payment-link`: Create a payment link for bank transfers
 - `truelayer-list-transactions`: Get a list of transactions for a merchant account (defaults to the last 30 days if no dates provided)
+
+
+## Optional example: host ACTION gate before privileged tools
+
+This repository already lets an assistant call TrueLayer payout and payment-link tools. Those calls move money, so some hosts may want a local allow/deny step before the tool runs.
+
+The file `examples/optional-affixio-action-gate.mjs` is a small, optional demo of that pattern using the AffixIO npm package (`affixio`) and its `mcpToolGate` helper. AffixIO records a host-side ACTION attestation (Know Your Agent / agent spend gate). That is not person KYC. PII stays on the host.
+
+This example is for demonstration only, same as the rest of this project. AffixIO is not required, not an official TrueLayer plugin, and not a partnership. Skip it if you do not need an extra gate.
+
+```bash
+npm i affixio
+AFFIX_API_KEY=aio_demo node examples/optional-affixio-action-gate.mjs
+```
+
+Links: [AffixIO/SDK](https://github.com/AffixIO/SDK), [npm affixio](https://www.npmjs.com/package/affixio).
