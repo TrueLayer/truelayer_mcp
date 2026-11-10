@@ -22,20 +22,20 @@ Given that AI assistants may not always produce deterministic behaviors, and for
 
 ### Product coverage
 
-The server covers part of the TrueLayer API. 🟡 means some operations are available and others aren't; ❌ means the product isn't covered at all. The "Not covered" column lists the main gaps and isn't exhaustive; see the [TrueLayer API reference](https://docs.truelayer.com/reference) for everything each product offers.
+The server covers part of the TrueLayer API. ✅ means every endpoint of the product is covered, 🟡 means some operations are available and others aren't, and ❌ means the product isn't covered at all. The "Not covered" column lists the main gaps and isn't exhaustive; see the [TrueLayer API reference](https://docs.truelayer.com/reference) for everything each product offers.
 
-| Product                                        | Status | Tools                                                                                               | Not covered                                                                                                                                         |
-| ---------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payments                                       | 🟡     | `truelayer-get-payment`                                                                             | Creating a payment directly (outside a payment link), choosing the bank for the user, the authorization flow, cancelling, refunds, listing payments |
-| Payment links                                  | 🟡     | `truelayer-create-payment-link`, `truelayer-get-payment-link`                                       | Links other than single payments, listing a link's payments, disabling a link                                                                       |
-| Payouts                                        | 🟡     | `truelayer-create-payout`, `truelayer-get-payout`                                                   | Payouts to anything other than an external account (back to a payment source, to a business account), cancelling, listing payouts                   |
-| Merchant accounts                              | 🟡     | `truelayer-get-merchant-account`, `truelayer-list-merchant-accounts`, `truelayer-list-transactions` | Payment sources, sweeping                                                                                                                           |
-| Mandates and variable recurring payments (VRP) | ❌     |                                                                                                     | Creating, getting, listing and revoking mandates, funds checks, constraints, payments under a mandate                                               |
-| Data API (account information)                 | ❌     |                                                                                                     | Accounts, balances, transactions, cards and standing orders, and the user consent flow they require                                                 |
-| Verification                                   | ❌     |                                                                                                     | Account holder name verification                                                                                                                    |
-| Signup+                                        | ❌     |                                                                                                     | Identity data for onboarding                                                                                                                        |
-| Providers                                      | ❌     |                                                                                                     | Searching for and looking up banks                                                                                                                  |
-| Webhooks                                       | ❌     |                                                                                                     | Status change notifications; the tools poll instead, as a local stdio server can't receive webhooks                                                 |
+| Product                                        | Status | Tools                                                                                               | Not covered                                                                                                                                                 |
+| ---------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payments                                       | ✅     | Create, get, cancel, the authorization flow, refunds; see [Payments tools](#payments)               | Payments under a mandate (see Mandates); Signup+ as a related product; passing the payer's IP address and device (`X-Forwarded-For`, `X-Device-User-Agent`) |
+| Payment links                                  | 🟡     | `truelayer-create-payment-link`, `truelayer-get-payment-link`                                       | Links other than single payments, listing a link's payments, disabling a link                                                                               |
+| Payouts                                        | 🟡     | `truelayer-create-payout`, `truelayer-get-payout`                                                   | Payouts to anything other than an external account (back to a payment source, to a business account), cancelling, listing payouts                           |
+| Merchant accounts                              | 🟡     | `truelayer-get-merchant-account`, `truelayer-list-merchant-accounts`, `truelayer-list-transactions` | Payment sources, sweeping                                                                                                                                   |
+| Mandates and variable recurring payments (VRP) | ❌     |                                                                                                     | Creating, getting, listing and revoking mandates, funds checks, constraints, payments under a mandate                                                       |
+| Data API (account information)                 | ❌     |                                                                                                     | Accounts, balances, transactions, cards and standing orders, and the user consent flow they require                                                         |
+| Verification                                   | ❌     |                                                                                                     | Account holder name verification                                                                                                                            |
+| Signup+                                        | ❌     |                                                                                                     | Identity data for onboarding                                                                                                                                |
+| Payments providers                             | ✅     | `truelayer-search-payments-providers`, `truelayer-get-payments-provider`                            |                                                                                                                                                             |
+| Webhooks                                       | ❌     |                                                                                                     | Status change notifications; the tools poll instead, as a local stdio server can't receive webhooks                                                         |
 
 The payout tools need the `paydirect` token scope, which is only available if Payouts is enabled on your client (see `TRUELAYER_TOKEN_SCOPE` below).
 
@@ -133,6 +133,8 @@ Once configured, you can ask Claude to perform TrueLayer operations. Here are so
 
 - "Create a payout of £100 to account number 12345678 with sort code 01-02-03."
 - "Generate a payment link for £50."
+- "Create a £20 payment from Jane Smith (jane@example.com) with a hosted payment page returning to https://example.com/done."
+- "Refund £5 of payment 1a2b3c… with the reference 'Damaged item'."
 - "List all transactions between 2023-01-01 and 2023-01-31."
 
 When you ask Claude about these operations, it will use the MCP server to execute them through the TrueLayer API.
@@ -149,7 +151,21 @@ Every tool declares MCP annotations so clients can decide when to ask before run
 
 ### Payments
 
+Creating a payment doesn't move money: the payer authorises it at their bank, either on TrueLayer's hosted payment page (pass `hosted_page` and send them to the returned `hosted_page.uri`) or through the authorization flow, where each step returns the `next` action to answer.
+
+- `truelayer-create-payment`: create a pay-by-bank payment into a merchant account (default) or an external account, with the bank chosen by the payer or preselected
 - `truelayer-get-payment`: details and status of a payment
+- `truelayer-start-payment-authorization`: start a payment's authorization flow, declaring what your UI can do (for example `redirect` with a return URI registered in Console)
+- `truelayer-submit-payment-action`: answer the flow's next action: provider, scheme or branch selection, a form, or consent
+- `truelayer-cancel-payment` 💸: cancel a payment that hasn't been authorised yet
+- `truelayer-submit-payment-provider-return`: for regulated clients with a direct return URI, pass back the bank's return parameters
+- `truelayer-create-refund` 💸: refund a settled merchant account payment, fully or partially
+- `truelayer-get-refunds`: list a payment's refunds, or get one
+
+### Payments providers
+
+- `truelayer-search-payments-providers`: find banks that support payments (or mandates), with their schemes and availability
+- `truelayer-get-payments-provider`: one bank's details and the capabilities available to your client
 
 ### Payment links
 
