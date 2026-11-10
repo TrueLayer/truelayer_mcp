@@ -18,6 +18,29 @@ type AccessResponse = {
 	token_type: string;
 }
 
+// Raised when TrueLayer answers with a non-2xx status. The message carries the
+// status and the response body (usually a problem+json document), so the
+// assistant sees why the call failed instead of an error body passed off as data.
+export class TrueLayerApiError extends Error {
+	constructor(
+		readonly method: string,
+		readonly path: string,
+		readonly status: number,
+		readonly body: string,
+	) {
+		super(`${method} ${path} failed with HTTP ${status}${body ? `: ${body}` : ""}`);
+		this.name = "TrueLayerApiError";
+	}
+}
+
+async function parseResponse(method: string, path: string, response: Response): Promise<any> {
+	const text = await response.text();
+	if (!response.ok) {
+		throw new TrueLayerApiError(method, path, response.status, text);
+	}
+	return text ? JSON.parse(text) : {};
+}
+
 // Token cache to avoid unnecessary token requests
 const tokenCache = {
 	token: null as string | null,
@@ -49,17 +72,14 @@ export async function getAccessToken(): Promise<string> {
 	return tokenCache.token;
 }
 
-// Make the request using native fetch
 export async function generateAccessToken(): Promise<AccessResponse> {
-	const requestData = {
+	const path = "/connect/token";
+	const formData = new URLSearchParams({
 		client_id: CLIENT_ID,
 		client_secret: CLIENT_SECRET,
 		scope: config.tokenScope,
 		grant_type: config.tokenGrantType
-	};
-
-	// Convert to application/x-www-form-urlencoded format
-	const formData = new URLSearchParams(requestData).toString();
+	}).toString();
 
 	// Headers that will be included in the signature
 	const headers = {
@@ -67,64 +87,25 @@ export async function generateAccessToken(): Promise<AccessResponse> {
 		'User-Agent': config.userAgent
 	};
 
-	// Create the TrueLayer signature
 	const signature = tlSigning.sign({
 		kid: KID,
 		privateKeyPem: PRIVATE_KEY_PEM,
 		method: tlSigning.HttpMethod.Post,
-		path: "/connect/token", // Path component of the URL
+		path,
 		headers,
-		body: formData, // Body must be a string
+		body: formData,
 	});
 
-	// Prepare request options for fetch
-	const requestOptions: RequestInit = {
+	const response = await fetch(AUTH_URI, {
 		method: 'POST',
-		headers: {
-			...headers,
-			'Tl-Signature': signature
-		},
+		headers: { ...headers, 'Tl-Signature': signature },
 		body: formData
-	};
-	try {
-		const response = await fetch(AUTH_URI, requestOptions);
-
-		if (!response.ok) {
-			throw new Error(`HTTP error! Status: ${response.status}`);
-		}
-
-		const data = await response.json();
-		return data;
-	} catch (error) {
-		console.error("Request failed:", error);
-		throw error;
-	}
-}
-
-export async function getPayout(
-	paymentId: string,
-): Promise<any> {
-	const access_token = await getAccessToken();
-
-	const response = await fetch(`${BASE_URI}/v3/payouts/${paymentId}`, {
-		method: 'GET',
-		headers: {
-			'Authorization': `Bearer ${access_token}`,
-			'Accept': 'application/json; charset=UTF-8',
-			'User-Agent': config.userAgent
-		}
 	});
-
-	const data = await response.json();
-	return data;
+	return parseResponse('POST', path, response);
 }
 
-export async function getPayment(
-	paymentId: string
-): Promise<any> {
+async function apiGet(path: string): Promise<any> {
 	const access_token = await getAccessToken();
-	const path = `/v3/payments/${paymentId}`;
-
 	const response = await fetch(`${BASE_URI}${path}`, {
 		method: 'GET',
 		headers: {
@@ -133,9 +114,46 @@ export async function getPayment(
 			'User-Agent': config.userAgent
 		}
 	});
+	return parseResponse('GET', path, response);
+}
 
-	const data = await response.json();
-	return data;
+// Signed POST with a fresh idempotency key, as required by the Payments v3 API.
+async function apiSignedPost(path: string, body: unknown): Promise<any> {
+	const access_token = await getAccessToken();
+	const bodyStr = JSON.stringify(body);
+
+	// Headers that will be included in the signature
+	const headers = {
+		'Authorization': `Bearer ${access_token}`,
+		'Content-Type': 'application/json; charset=UTF-8',
+		'Accept': 'application/json; charset=UTF-8',
+		'Idempotency-Key': uuidv4(),
+		'User-Agent': config.userAgent
+	};
+
+	const signature = tlSigning.sign({
+		kid: KID,
+		privateKeyPem: PRIVATE_KEY_PEM,
+		method: tlSigning.HttpMethod.Post,
+		path,
+		headers,
+		body: bodyStr,
+	});
+
+	const response = await fetch(`${BASE_URI}${path}`, {
+		method: 'POST',
+		headers: { ...headers, 'Tl-Signature': signature },
+		body: bodyStr
+	});
+	return parseResponse('POST', path, response);
+}
+
+export async function getPayout(payoutId: string): Promise<any> {
+	return apiGet(`/v3/payouts/${encodeURIComponent(payoutId)}`);
+}
+
+export async function getPayment(paymentId: string): Promise<any> {
+	return apiGet(`/v3/payments/${encodeURIComponent(paymentId)}`);
 }
 
 export interface PayoutRequest {
@@ -155,45 +173,8 @@ export interface PayoutRequest {
 	};
 }
 
-export async function createPayout(
-	payoutRequest: PayoutRequest,
-): Promise<any> {
-	const access_token = await getAccessToken();
-	const path = "/v3/payouts";
-
-	// Convert body to string for signing
-	const bodyStr = JSON.stringify(payoutRequest);
-	const idempotencyKey = uuidv4();
-
-	// Headers that will be included in the signature
-	const headers = {
-		'Authorization': `Bearer ${access_token}`,
-		'Content-Type': 'application/json; charset=UTF-8',
-		'Accept': 'application/json; charset=UTF-8',
-		'Idempotency-Key': idempotencyKey,
-		'User-Agent': config.userAgent
-	};
-
-	// Create the TrueLayer signature
-	const signature = tlSigning.sign({
-		kid: KID,
-		privateKeyPem: PRIVATE_KEY_PEM,
-		method: tlSigning.HttpMethod.Post,
-		path: path,
-		headers,
-		body: bodyStr,
-	});
-
-	const response = await fetch(`${BASE_URI}${path}`, {
-		method: 'POST',
-		headers: {
-			...headers,
-			'Tl-Signature': signature
-		},
-		body: bodyStr
-	});
-
-	return await response.json();
+export async function createPayout(payoutRequest: PayoutRequest): Promise<any> {
+	return apiSignedPost("/v3/payouts", payoutRequest);
 }
 
 export interface PaymentLinkRequest {
@@ -229,64 +210,12 @@ export interface PaymentLinkRequest {
 	}
 }
 
-export async function createPaymentLink(
-	paymentLinkRequest: PaymentLinkRequest
-): Promise<any> {
-	const access_token = await getAccessToken();
-	const path = "/v3/payment-links";
-
-	// Generate idempotency key
-	const idempotencyKey = uuidv4();
-
-	const headers = {
-		'Authorization': `Bearer ${access_token}`,
-		'Content-Type': 'application/json; charset=UTF-8',
-		'Accept': 'application/json; charset=UTF-8',
-		'Idempotency-Key': idempotencyKey,
-		'User-Agent': config.userAgent
-	};
-
-	// Create the TrueLayer signature
-	const bodyStr = JSON.stringify(paymentLinkRequest);
-	const signature = tlSigning.sign({
-		kid: KID,
-		privateKeyPem: PRIVATE_KEY_PEM,
-		method: tlSigning.HttpMethod.Post,
-		path: path,
-		headers,
-		body: bodyStr,
-	});
-
-	const response = await fetch(`${BASE_URI}${path}`, {
-		method: 'POST',
-		headers: {
-			...headers,
-			'Tl-Signature': signature
-		},
-		body: bodyStr
-	});
-
-	// const data = await response.json();
-	return await response.json();
+export async function createPaymentLink(paymentLinkRequest: PaymentLinkRequest): Promise<any> {
+	return apiSignedPost("/v3/payment-links", paymentLinkRequest);
 }
 
-export async function getPaymentLink(
-	paymentLinkId: string
-): Promise<any> {
-	const access_token = await getAccessToken();
-	const path = `/v3/payment-links/${paymentLinkId}`;
-
-	const response = await fetch(`${BASE_URI}${path}`, {
-		method: 'GET',
-		headers: {
-			'Authorization': `Bearer ${access_token}`,
-			'Accept': 'application/json; charset=UTF-8',
-			'User-Agent': config.userAgent
-		}
-	});
-
-	const data = await response.json();
-	return data;
+export async function getPaymentLink(paymentLinkId: string): Promise<any> {
+	return apiGet(`/v3/payment-links/${encodeURIComponent(paymentLinkId)}`);
 }
 
 export async function listTransactions(
@@ -295,28 +224,9 @@ export async function listTransactions(
 	merchant_account_id: string,
 	cursor?: string
 ): Promise<any> {
-	const access_token = await getAccessToken();
-
-	const params = new URLSearchParams();
-	params.append('from', from);
-	params.append('to', to);
+	const params = new URLSearchParams({ from, to });
 	if (cursor) {
 		params.append('cursor', cursor);
 	}
-
-	const queryString = params.toString();
-	const url = `${BASE_URI}/v3/merchant-accounts/${merchant_account_id}/transactions?${queryString}`;
-
-	const response = await fetch(url, {
-		method: 'GET',
-		headers: {
-			'Authorization': `Bearer ${access_token}`,
-			'Accept': 'application/json; charset=UTF-8',
-			'User-Agent': config.userAgent
-		},
-	});
-	const data = await response.json();
-	console.error(data)
-	return data;
+	return apiGet(`/v3/merchant-accounts/${encodeURIComponent(merchant_account_id)}/transactions?${params}`);
 }
-

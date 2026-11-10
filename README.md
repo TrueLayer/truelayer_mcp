@@ -34,7 +34,7 @@ Here are specific TrueLayer functions that an AI assistant can call for you once
 
 ### Prerequisites
 
-- Node.js (v14 or later)
+- Node.js (v18 or later)
 - npm or yarn
 - A TrueLayer account with API credentials
 
