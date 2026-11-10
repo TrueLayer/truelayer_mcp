@@ -1,11 +1,21 @@
+#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
-import { settings, getPayout, getPayment, getPaymentLink, createPayout, createPaymentLink, listTransactions, getMerchantAccount, listMerchantAccounts } from "./truelayer.js";
-import { v4 as uuidv4 } from 'uuid';
 import { ConfigError, getConfig } from "./config.js";
-
+import {
+	createPaymentLink,
+	createPayout,
+	getMerchantAccount,
+	getPayment,
+	getPaymentLink,
+	getPayout,
+	listMerchantAccounts,
+	listTransactions,
+	settings,
+} from "./truelayer.js";
 
 // Create server instance
 const server = new McpServer(
@@ -33,29 +43,33 @@ async function run(label: string, failure: string, fn: () => Promise<unknown>): 
 	}
 }
 
-
 server.registerTool(
 	"truelayer-get-merchant-account",
 	{
-		description: "Get a merchant account's details from TrueLayer: currency, account identifiers, account holder name and balances. Defaults to the merchant account configured for this server.",
+		description:
+			"Get a merchant account's details from TrueLayer: currency, account identifiers, account holder name and balances. Defaults to the merchant account configured for this server.",
 		inputSchema: {
-			merchant_account_id: z.string().optional().describe("Merchant account ID; defaults to the configured merchant account"),
+			merchant_account_id: z
+				.string()
+				.optional()
+				.describe("Merchant account ID; defaults to the configured merchant account"),
 		},
 	},
 	({ merchant_account_id }) =>
 		run("Merchant account", "Failed to retrieve merchant account", async () => ({
 			client_id: getConfig().clientId,
 			...(await getMerchantAccount(merchant_account_id || getConfig().merchantAccountId)),
-		}))
-)
+		})),
+);
 
 server.registerTool(
 	"truelayer-list-merchant-accounts",
 	{
-		description: "List all merchant accounts available to this TrueLayer client, with their currencies, identifiers and balances",
+		description:
+			"List all merchant accounts available to this TrueLayer client, with their currencies, identifiers and balances",
 	},
-	() => run("Merchant accounts", "Failed to list merchant accounts", () => listMerchantAccounts())
-)
+	() => run("Merchant accounts", "Failed to list merchant accounts", () => listMerchantAccounts()),
+);
 
 server.registerTool(
 	"truelayer-get-payout",
@@ -65,7 +79,7 @@ server.registerTool(
 			payoutId: z.string().describe("Payout ID to retrieve"),
 		},
 	},
-	({ payoutId }) => run("Payout details", "Failed to retrieve payout", () => getPayout(payoutId))
+	({ payoutId }) => run("Payout details", "Failed to retrieve payout", () => getPayout(payoutId)),
 );
 
 server.registerTool(
@@ -83,17 +97,17 @@ server.registerTool(
 					type: z.string().describe("Account identifier type (e.g., sort_code_account_number)"),
 					sort_code: z.string().optional().describe("Sort code"),
 					account_number: z.string().optional().describe("Account number"),
-					iban: z.string().optional().describe("IBAN")
+					iban: z.string().optional().describe("IBAN"),
 				}),
-				reference: z.string().optional().describe("Payment reference")
-			})
+				reference: z.string().optional().describe("Payment reference"),
+			}),
 		},
 	},
 	({ currency, merchant_account_id, amount_in_minor, beneficiary }) =>
 		run("Payout created successfully", "Failed to create payout", () =>
-			createPayout({ currency, amount_in_minor, merchant_account_id, beneficiary }))
+			createPayout({ currency, amount_in_minor, merchant_account_id, beneficiary }),
+		),
 );
-
 
 server.registerTool(
 	"truelayer-create-payment-link",
@@ -104,19 +118,23 @@ server.registerTool(
 			merchant_account_id: z.string().describe("Merchant account ID"),
 			currency: z.string().describe("Currency code"),
 			expires_in_hours: z.number().optional().describe("Payment link expiry time in hours"),
-			user: z.object({
-				name: z.string().describe("User's name"),
-				email: z.string().describe("User's email address"),
-				phone: z.string().describe("User's phone number"),
-				date_of_birth: z.string().describe("User's date of birth (YYYY-MM-DD)"),
-				address: z.object({
-					address_line1: z.string().describe("Address line 1"),
-					city: z.string().describe("City"),
-					zip: z.string().describe("Postal/zip code"),
-					state: z.string().describe("State/region"),
-					country_code: z.string().describe("Country code (ISO)")
-				}).describe("User's address")
-			}).describe("User information"),
+			user: z
+				.object({
+					name: z.string().describe("User's name"),
+					email: z.string().describe("User's email address"),
+					phone: z.string().describe("User's phone number"),
+					date_of_birth: z.string().describe("User's date of birth (YYYY-MM-DD)"),
+					address: z
+						.object({
+							address_line1: z.string().describe("Address line 1"),
+							city: z.string().describe("City"),
+							zip: z.string().describe("Postal/zip code"),
+							state: z.string().describe("State/region"),
+							country_code: z.string().describe("Country code (ISO)"),
+						})
+						.describe("User's address"),
+				})
+				.describe("User information"),
 		},
 	},
 	({ amount_in_minor, merchant_account_id, currency, expires_in_hours, user }) =>
@@ -139,7 +157,7 @@ server.registerTool(
 						beneficiary: {
 							type: "merchant_account",
 							merchant_account_id,
-						}
+						},
 					},
 					user: {
 						id: uuidv4(),
@@ -147,11 +165,11 @@ server.registerTool(
 						email: user.email,
 						phone: user.phone,
 						date_of_birth: user.date_of_birth,
-						address: user.address
-					}
+						address: user.address,
+					},
 				},
 			});
-		})
+		}),
 );
 
 server.registerTool(
@@ -162,7 +180,8 @@ server.registerTool(
 			paymentLinkId: z.string().describe("ID of the payment link to retrieve"),
 		},
 	},
-	({ paymentLinkId }) => run("Payment link details", "Failed to retrieve payment link", () => getPaymentLink(paymentLinkId))
+	({ paymentLinkId }) =>
+		run("Payment link details", "Failed to retrieve payment link", () => getPaymentLink(paymentLinkId)),
 );
 
 server.registerTool(
@@ -173,7 +192,7 @@ server.registerTool(
 			paymentId: z.string().describe("ID of the payment to retrieve"),
 		},
 	},
-	({ paymentId }) => run("Payment details", "Failed to retrieve payment", () => getPayment(paymentId))
+	({ paymentId }) => run("Payment details", "Failed to retrieve payment", () => getPayment(paymentId)),
 );
 
 server.registerTool(
@@ -193,15 +212,17 @@ server.registerTool(
 			const toDate = to || new Date().toISOString();
 
 			// Calculate from date (30 days before to date)
-			const fromDate = from || (() => {
-				const date = to ? new Date(to) : new Date();
-				date.setDate(date.getDate() - 30);
-				return date.toISOString();
-			})();
+			const fromDate =
+				from ||
+				(() => {
+					const date = to ? new Date(to) : new Date();
+					date.setDate(date.getDate() - 30);
+					return date.toISOString();
+				})();
 
 			return listTransactions(fromDate, toDate, merchant_account_id, cursor);
-		})
-)
+		}),
+);
 
 async function main() {
 	// Validate configuration before accepting requests, so a missing setting
