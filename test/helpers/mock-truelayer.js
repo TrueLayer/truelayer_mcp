@@ -60,8 +60,8 @@ export async function startMockTrueLayer() {
 			};
 			requests.push(request);
 
-			const send = (status, payload) => {
-				res.writeHead(status, payload === undefined ? {} : { "content-type": "application/json" });
+			const send = (status, payload, headers = {}) => {
+				res.writeHead(status, { ...(payload === undefined ? {} : { "content-type": "application/json" }), ...headers });
 				res.end(payload === undefined ? "" : JSON.stringify(payload));
 			};
 			if (signatureValid === false) return send(401, { title: "Invalid signature" });
@@ -83,7 +83,7 @@ export async function startMockTrueLayer() {
 				});
 			try {
 				const result = await route.handler(request, route.match(url.pathname));
-				send(result?.status ?? 200, result?.body);
+				send(result?.status ?? 200, result?.body, result?.headers);
 			} catch (error) {
 				send(500, { title: "Mock handler failed", detail: String(error) });
 			}
@@ -96,7 +96,8 @@ export async function startMockTrueLayer() {
 		url,
 		requests,
 		// Registers a handler for METHOD + path. `path` may contain :params, which
-		// are passed to the handler as its second argument.
+		// are passed to the handler as its second argument. The handler returns
+		// { status, body, headers }, all optional.
 		route(method, path, handler) {
 			const pattern = new RegExp(`^${path.replace(/:[a-z_]+/g, "([^/]+)")}$`);
 			const names = [...path.matchAll(/:([a-z_]+)/g)].map((m) => m[1]);

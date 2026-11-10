@@ -22,14 +22,18 @@ type AccessResponse = {
 // Raised when TrueLayer answers with a non-2xx status. The message carries the
 // status and the response body (usually a problem+json document), so the
 // assistant sees why the call failed instead of an error body passed off as data.
+// It also carries Tl-Should-Retry when TrueLayer sends it: false means a retry
+// with the same idempotency key only replays this response.
 export class TrueLayerApiError extends Error {
 	constructor(
 		readonly method: string,
 		readonly path: string,
 		readonly status: number,
 		readonly body: string,
+		readonly shouldRetry?: boolean,
 	) {
-		super(`${method} ${path} failed with HTTP ${status}${body ? `: ${body}` : ""}`);
+		const retry = shouldRetry === undefined ? "" : ` (Tl-Should-Retry: ${shouldRetry})`;
+		super(`${method} ${path} failed with HTTP ${status}${retry}${body ? `: ${body}` : ""}`);
 		this.name = "TrueLayerApiError";
 	}
 }
@@ -39,7 +43,14 @@ export class TrueLayerApiError extends Error {
 async function parseResponse<T = unknown>(method: string, path: string, response: Response): Promise<T> {
 	const text = await response.text();
 	if (!response.ok) {
-		throw new TrueLayerApiError(method, path, response.status, text);
+		const shouldRetry = response.headers.get("tl-should-retry")?.toLowerCase();
+		throw new TrueLayerApiError(
+			method,
+			path,
+			response.status,
+			text,
+			shouldRetry === "true" ? true : shouldRetry === "false" ? false : undefined,
+		);
 	}
 	return (text ? JSON.parse(text) : {}) as T;
 }

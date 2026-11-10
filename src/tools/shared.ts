@@ -32,7 +32,8 @@ export const WRITES: ToolAnnotations = {
 	openWorldHint: true,
 };
 
-// Moves money or can't be undone (payouts, refunds, cancellations).
+// Moves money or can't be undone (payouts, refunds, cancellations, and the
+// authorization steps that can authorise a payment).
 export const MOVES_MONEY: ToolAnnotations = {
 	readOnlyHint: false,
 	destructiveHint: true,
@@ -46,5 +47,5 @@ export const idempotencyKey = z
 	.max(255)
 	.optional()
 	.describe(
-		"Idempotency key for safe retries. Reuse the same key when retrying the same operation so TrueLayer doesn't perform it twice; omit to generate a new one.",
+		"Idempotency key for safe retries. TrueLayer stores the response to each key for 30 days and replays it. Reuse the key when retrying the same operation after a failure without Tl-Should-Retry: false, so TrueLayer doesn't perform it twice. Use a new key (or omit it to generate one) after a failure with Tl-Should-Retry: false, which would only replay the same error, or after changing the input, which a reused key rejects with HTTP 422.",
 	);
