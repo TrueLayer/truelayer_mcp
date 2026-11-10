@@ -24,7 +24,7 @@ Given that AI assistants may not always produce deterministic behaviors, and for
 
 Here are specific TrueLayer functions that an AI assistant can call for you once the MCP server is installed:
 
-- Get merchant account details
+- Get merchant account details and balances, and list merchant accounts
 - List transaction history
 - Create payouts to external accounts
 - Generate payment links for banking transactions

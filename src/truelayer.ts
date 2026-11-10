@@ -226,6 +226,14 @@ export async function getPaymentLink(paymentLinkId: string): Promise<any> {
 	return apiGet(`/v3/payment-links/${encodeURIComponent(paymentLinkId)}`);
 }
 
+export async function listMerchantAccounts(): Promise<any> {
+	return apiGet("/v3/merchant-accounts");
+}
+
+export async function getMerchantAccount(merchantAccountId: string): Promise<any> {
+	return apiGet(`/v3/merchant-accounts/${encodeURIComponent(merchantAccountId)}`);
+}
+
 export async function listTransactions(
 	from: string,
 	to: string,

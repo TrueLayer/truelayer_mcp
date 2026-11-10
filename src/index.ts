@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { config, getPayout, getPayment, getPaymentLink, createPayout, createPaymentLink, listTransactions } from "./truelayer.js";
+import { config, getPayout, getPayment, getPaymentLink, createPayout, createPaymentLink, listTransactions, getMerchantAccount, listMerchantAccounts } from "./truelayer.js";
 import { v4 as uuidv4 } from 'uuid';
 import { CLIENT_ID, MERCHANT_ACCOUNT_ID } from "./auth.js";
 
@@ -37,21 +37,24 @@ async function run(label: string, failure: string, fn: () => Promise<unknown>): 
 server.registerTool(
 	"truelayer-get-merchant-account",
 	{
-		description: "Get merchant account details from TrueLayer",
+		description: "Get a merchant account's details from TrueLayer: currency, account identifiers, account holder name and balances. Defaults to the merchant account configured for this server.",
+		inputSchema: {
+			merchant_account_id: z.string().optional().describe("Merchant account ID; defaults to the configured merchant account"),
+		},
 	},
-	async () => {
-		return {
-			content: [
-				{
-					type: "text",
-					text: JSON.stringify({
-						merchant_account_id: MERCHANT_ACCOUNT_ID,
-						client_id: CLIENT_ID
-					})
-				}
-			],
-		};
-	}
+	({ merchant_account_id }) =>
+		run("Merchant account", "Failed to retrieve merchant account", async () => ({
+			client_id: CLIENT_ID,
+			...(await getMerchantAccount(merchant_account_id || MERCHANT_ACCOUNT_ID)),
+		}))
+)
+
+server.registerTool(
+	"truelayer-list-merchant-accounts",
+	{
+		description: "List all merchant accounts available to this TrueLayer client, with their currencies, identifiers and balances",
+	},
+	() => run("Merchant accounts", "Failed to list merchant accounts", () => listMerchantAccounts())
 )
 
 server.registerTool(
