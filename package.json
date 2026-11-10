@@ -1,10 +1,14 @@
 {
   "name": "truelayer-mcp",
   "version": "1.0.0",
-  "description": "",
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "description": "Experimental MCP server exposing TrueLayer payments, payment links, payouts and merchant accounts to AI assistants",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "truelayer",
+    "open-banking"
+  ],
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "truelayer-signing": "^0.2.3",
@@ -12,6 +16,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.6",
     "@types/node": "^22.13.14",
     "typescript": "^5.8.2"
   },
@@ -20,13 +25,24 @@
     "truelayer-mcp": "./build/index.js"
   },
   "scripts": {
-    "tsc": "tsc",
-    "build": "tsc && chmod 755 build/*"
+    "build": "tsc && chmod 755 build/index.js",
+    "lint": "biome check .",
+    "fix": "biome check --write ."
   },
   "files": [
-    "build"
+    "build",
+    ".env.example"
   ],
   "engines": {
     "node": ">=22"
+  },
+  "private": "true",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TrueLayer/truelayer_mcp.git"
+  },
+  "homepage": "https://github.com/TrueLayer/truelayer_mcp#readme",
+  "bugs": {
+    "url": "https://github.com/TrueLayer/truelayer_mcp/issues"
   }
 }

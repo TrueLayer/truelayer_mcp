@@ -1,21 +1,21 @@
 import * as tlSigning from "truelayer-signing";
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
 import { getConfig } from "./config.js";
 
 // Client behaviour settings; credentials and endpoints come from getConfig().
 export const settings = {
-	userAgent: 'truelayer-mcp/1.0.0',
-	tokenGrantType: 'client_credentials',
+	userAgent: "truelayer-mcp/1.0.0",
+	tokenGrantType: "client_credentials",
 	tokenExpiryFallbackSeconds: 1800, // 30 minutes fallback if expires_in is not present
 	tokenExpiryBufferMs: 60000, // 60 second buffer for token validity check
-	paymentLinkExpiryHours: 24 // Payment links expire after 24 hours by default
+	paymentLinkExpiryHours: 24, // Payment links expire after 24 hours by default
 };
 
 type AccessResponse = {
 	access_token: string;
 	expires_in: number;
 	token_type: string;
-}
+};
 
 // Raised when TrueLayer answers with a non-2xx status. The message carries the
 // status and the response body (usually a problem+json document), so the
@@ -32,12 +32,14 @@ export class TrueLayerApiError extends Error {
 	}
 }
 
-async function parseResponse(method: string, path: string, response: Response): Promise<any> {
+// Response bodies are returned as `unknown`: the tools pass them through to the
+// assistant as JSON, and anything reading fields must check them first.
+async function parseResponse<T = unknown>(method: string, path: string, response: Response): Promise<T> {
 	const text = await response.text();
 	if (!response.ok) {
 		throw new TrueLayerApiError(method, path, response.status, text);
 	}
-	return text ? JSON.parse(text) : {};
+	return (text ? JSON.parse(text) : {}) as T;
 }
 
 // Token cache to avoid unnecessary token requests
@@ -46,18 +48,11 @@ const tokenCache = {
 	expiresAt: 0, // timestamp when the token expires
 };
 
-// Check if token is valid, with a buffer of 60 seconds to avoid edge cases
-const isTokenValid = (): boolean => {
-	return (
-		tokenCache.token !== null &&
-		tokenCache.expiresAt > Date.now() + settings.tokenExpiryBufferMs
-	);
-};
-
-// Get cached token or generate a new one if needed
+// Get cached token or generate a new one if needed. A cached token is reused
+// until 60 seconds before it expires, to avoid edge cases.
 export async function getAccessToken(): Promise<string> {
-	if (isTokenValid()) {
-		return tokenCache.token!;
+	if (tokenCache.token !== null && tokenCache.expiresAt > Date.now() + settings.tokenExpiryBufferMs) {
+		return tokenCache.token;
 	}
 
 	const tokenResponse = await generateAccessToken();
@@ -66,7 +61,7 @@ export async function getAccessToken(): Promise<string> {
 	// Calculate expiration time in milliseconds
 	// Use the expires_in from the response or fallback to configured value
 	const expiresIn = tokenResponse.expires_in || settings.tokenExpiryFallbackSeconds;
-	tokenCache.expiresAt = Date.now() + (expiresIn * 1000);
+	tokenCache.expiresAt = Date.now() + expiresIn * 1000;
 
 	return tokenCache.token;
 }
@@ -77,13 +72,13 @@ export async function generateAccessToken(): Promise<AccessResponse> {
 		client_id: getConfig().clientId,
 		client_secret: getConfig().clientSecret,
 		scope: getConfig().tokenScope,
-		grant_type: settings.tokenGrantType
+		grant_type: settings.tokenGrantType,
 	}).toString();
 
 	// Headers that will be included in the signature
 	const headers = {
-		'Content-Type': 'application/x-www-form-urlencoded',
-		'User-Agent': settings.userAgent
+		"Content-Type": "application/x-www-form-urlencoded",
+		"User-Agent": settings.userAgent,
 	};
 
 	const signature = tlSigning.sign({
@@ -96,38 +91,38 @@ export async function generateAccessToken(): Promise<AccessResponse> {
 	});
 
 	const response = await fetch(getConfig().authUri, {
-		method: 'POST',
-		headers: { ...headers, 'Tl-Signature': signature },
-		body: formData
+		method: "POST",
+		headers: { ...headers, "Tl-Signature": signature },
+		body: formData,
 	});
-	return parseResponse('POST', path, response);
+	return parseResponse<AccessResponse>("POST", path, response);
 }
 
-async function apiGet(path: string): Promise<any> {
+async function apiGet<T = unknown>(path: string): Promise<T> {
 	const access_token = await getAccessToken();
 	const response = await fetch(`${getConfig().apiUri}${path}`, {
-		method: 'GET',
+		method: "GET",
 		headers: {
-			'Authorization': `Bearer ${access_token}`,
-			'Accept': 'application/json; charset=UTF-8',
-			'User-Agent': settings.userAgent
-		}
+			Authorization: `Bearer ${access_token}`,
+			Accept: "application/json; charset=UTF-8",
+			"User-Agent": settings.userAgent,
+		},
 	});
-	return parseResponse('GET', path, response);
+	return parseResponse<T>("GET", path, response);
 }
 
 // Signed POST with a fresh idempotency key, as required by the Payments v3 API.
-async function apiSignedPost(path: string, body: unknown): Promise<any> {
+async function apiSignedPost(path: string, body: unknown): Promise<unknown> {
 	const access_token = await getAccessToken();
 	const bodyStr = JSON.stringify(body);
 
 	// Headers that will be included in the signature
 	const headers = {
-		'Authorization': `Bearer ${access_token}`,
-		'Content-Type': 'application/json; charset=UTF-8',
-		'Accept': 'application/json; charset=UTF-8',
-		'Idempotency-Key': uuidv4(),
-		'User-Agent': settings.userAgent
+		Authorization: `Bearer ${access_token}`,
+		"Content-Type": "application/json; charset=UTF-8",
+		Accept: "application/json; charset=UTF-8",
+		"Idempotency-Key": uuidv4(),
+		"User-Agent": settings.userAgent,
 	};
 
 	const signature = tlSigning.sign({
@@ -140,28 +135,28 @@ async function apiSignedPost(path: string, body: unknown): Promise<any> {
 	});
 
 	const response = await fetch(`${getConfig().apiUri}${path}`, {
-		method: 'POST',
-		headers: { ...headers, 'Tl-Signature': signature },
-		body: bodyStr
+		method: "POST",
+		headers: { ...headers, "Tl-Signature": signature },
+		body: bodyStr,
 	});
-	return parseResponse('POST', path, response);
+	return parseResponse("POST", path, response);
 }
 
-export async function getPayout(payoutId: string): Promise<any> {
+export async function getPayout(payoutId: string): Promise<unknown> {
 	return apiGet(`/v3/payouts/${encodeURIComponent(payoutId)}`);
 }
 
-export async function getPayment(paymentId: string): Promise<any> {
+export async function getPayment(paymentId: string): Promise<unknown> {
 	return apiGet(`/v3/payments/${encodeURIComponent(paymentId)}`);
 }
 
 export interface PayoutRequest {
 	currency: string;
-	merchant_account_id: string,
+	merchant_account_id: string;
 	amount_in_minor: number;
 	beneficiary: {
 		type: string;
-		account_holder_name: string,
+		account_holder_name: string;
 		account_identifier: {
 			type: string;
 			sort_code?: string;
@@ -172,13 +167,13 @@ export interface PayoutRequest {
 	};
 }
 
-export async function createPayout(payoutRequest: PayoutRequest): Promise<any> {
+export async function createPayout(payoutRequest: PayoutRequest): Promise<unknown> {
 	return apiSignedPost("/v3/payouts", payoutRequest);
 }
 
 export interface PaymentLinkRequest {
 	type: string;
-	expires_at: string,
+	expires_at: string;
 	payment_configuration: {
 		amount_in_minor: number;
 		currency: string;
@@ -186,12 +181,12 @@ export interface PaymentLinkRequest {
 			type: string;
 			provider_selection: {
 				type: string;
-			},
+			};
 			beneficiary: {
 				type: string;
 				merchant_account_id: string;
-			}
-		}
+			};
+		};
 		user: {
 			id: string;
 			name: string;
@@ -204,36 +199,36 @@ export interface PaymentLinkRequest {
 				city: string;
 				zip: string;
 				country_code: string;
-			}
-		}
-	}
+			};
+		};
+	};
 }
 
-export async function createPaymentLink(paymentLinkRequest: PaymentLinkRequest): Promise<any> {
+export async function createPaymentLink(paymentLinkRequest: PaymentLinkRequest): Promise<unknown> {
 	return apiSignedPost("/v3/payment-links", paymentLinkRequest);
 }
 
-export async function getPaymentLink(paymentLinkId: string): Promise<any> {
+export async function getPaymentLink(paymentLinkId: string): Promise<unknown> {
 	return apiGet(`/v3/payment-links/${encodeURIComponent(paymentLinkId)}`);
 }
 
-export async function listMerchantAccounts(): Promise<any> {
+export async function listMerchantAccounts(): Promise<unknown> {
 	return apiGet("/v3/merchant-accounts");
 }
 
-export async function getMerchantAccount(merchantAccountId: string): Promise<any> {
-	return apiGet(`/v3/merchant-accounts/${encodeURIComponent(merchantAccountId)}`);
+export async function getMerchantAccount(merchantAccountId: string): Promise<Record<string, unknown>> {
+	return apiGet<Record<string, unknown>>(`/v3/merchant-accounts/${encodeURIComponent(merchantAccountId)}`);
 }
 
 export async function listTransactions(
 	from: string,
 	to: string,
 	merchant_account_id: string,
-	cursor?: string
-): Promise<any> {
+	cursor?: string,
+): Promise<unknown> {
 	const params = new URLSearchParams({ from, to });
 	if (cursor) {
-		params.append('cursor', cursor);
+		params.append("cursor", cursor);
 	}
 	return apiGet(`/v3/merchant-accounts/${encodeURIComponent(merchant_account_id)}/transactions?${params}`);
 }

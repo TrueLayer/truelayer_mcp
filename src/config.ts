@@ -38,7 +38,9 @@ export interface Config {
 
 export class ConfigError extends Error {
 	constructor(problems: string[]) {
-		super(`Invalid TrueLayer MCP configuration:\n${problems.map((p) => `  - ${p}`).join("\n")}\nSee .env.example for the available settings.`);
+		super(
+			`Invalid TrueLayer MCP configuration:\n${problems.map((p) => `  - ${p}`).join("\n")}\nSee .env.example for the available settings.`,
+		);
 		this.name = "ConfigError";
 	}
 }
@@ -106,9 +108,15 @@ export function loadConfig(): Config {
 		authUri: env("TRUELAYER_AUTH_URI") ?? defaults.authUri,
 		apiUri: env("TRUELAYER_API_URI") ?? defaults.apiUri,
 		clientId: required("TRUELAYER_CLIENT_ID", env("TRUELAYER_CLIENT_ID")),
-		clientSecret: required("TRUELAYER_CLIENT_SECRET (or TRUELAYER_CLIENT_SECRET_FILE)", valueOrFile("TRUELAYER_CLIENT_SECRET", problems)),
+		clientSecret: required(
+			"TRUELAYER_CLIENT_SECRET (or TRUELAYER_CLIENT_SECRET_FILE)",
+			valueOrFile("TRUELAYER_CLIENT_SECRET", problems),
+		),
 		kid: required("TRUELAYER_KID", env("TRUELAYER_KID")),
-		privateKeyPem: required("TRUELAYER_PRIVATE_KEY (or TRUELAYER_PRIVATE_KEY_FILE)", valueOrFile("TRUELAYER_PRIVATE_KEY", problems)),
+		privateKeyPem: required(
+			"TRUELAYER_PRIVATE_KEY (or TRUELAYER_PRIVATE_KEY_FILE)",
+			valueOrFile("TRUELAYER_PRIVATE_KEY", problems),
+		),
 		merchantAccountId: required("TRUELAYER_MERCHANT_ACCOUNT_ID", env("TRUELAYER_MERCHANT_ACCOUNT_ID")),
 		// `paydirect` is needed for the payout tools; clients without Payouts
 		// enabled get `invalid_scope` and should use "payments".
@@ -129,5 +137,8 @@ let cached: Config | undefined;
 
 // The configuration, loaded and validated on first use.
 export function getConfig(): Config {
-	return (cached ??= loadConfig());
+	if (cached === undefined) {
+		cached = loadConfig();
+	}
+	return cached;
 }
