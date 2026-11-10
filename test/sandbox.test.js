@@ -1,5 +1,7 @@
-// Read-only checks against the real TrueLayer sandbox, using your .env.
-// Skipped unless TRUELAYER_SANDBOX_TESTS=1 (see `npm run test:sandbox`).
+// Checks against the real TrueLayer sandbox, using your .env. Most are
+// read-only; the payments tests create 1p payments that are never authorised
+// and cancel one of them. Skipped unless TRUELAYER_SANDBOX_TESTS=1 (see
+// `npm run test:sandbox`).
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { startServer } from "./helpers/mcp.js";
@@ -36,7 +38,7 @@ describe("sandbox", { skip: !enabled && "set TRUELAYER_SANDBOX_TESTS=1 to run ag
 	});
 
 	test("an unknown payment is reported as a 404 tool error", async () => {
-		const result = await server.call("truelayer-get-payment", { paymentId: "00000000-0000-0000-0000-000000000000" });
+		const result = await server.call("truelayer-get-payment", { payment_id: "00000000-0000-0000-0000-000000000000" });
 		assert.equal(result.isError, true);
 		assert.match(result.text, /HTTP 404/);
 	});
@@ -88,7 +90,7 @@ describe("sandbox", { skip: !enabled && "set TRUELAYER_SANDBOX_TESTS=1 to run ag
 
 			let payment;
 			for (let attempt = 0; attempt < 10; attempt++) {
-				payment = (await server.call("truelayer-get-payment", { paymentId: created.json.id })).json;
+				payment = (await server.call("truelayer-get-payment", { payment_id: created.json.id })).json;
 				if (payment.status === "failed") break;
 				await new Promise((resolve) => setTimeout(resolve, 500));
 			}

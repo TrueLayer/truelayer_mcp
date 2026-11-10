@@ -47,8 +47,8 @@ describe("authentication", () => {
 		const fresh = await startServer(testEnv(mock, { TRUELAYER_TOKEN_SCOPE: "payments" }));
 		try {
 			mock.route("GET", "/v3/payments/:id", (_req, { id }) => ({ body: { id } }));
-			await fresh.call("truelayer-get-payment", { paymentId: "p1" });
-			await fresh.call("truelayer-get-payment", { paymentId: "p2" });
+			await fresh.call("truelayer-get-payment", { payment_id: "p1" });
+			await fresh.call("truelayer-get-payment", { payment_id: "p2" });
 
 			const tokenRequests = mock.requests.filter((r) => r.path === "/connect/token");
 			assert.equal(tokenRequests.length, 1, "the token is cached");
@@ -69,7 +69,7 @@ describe("authentication", () => {
 		const fresh = await startServer(testEnv(mock));
 		try {
 			mock.route("GET", "/v3/payments/:id", (_req, { id }) => ({ body: { id } }));
-			await fresh.call("truelayer-get-payment", { paymentId: "p1" });
+			await fresh.call("truelayer-get-payment", { payment_id: "p1" });
 			for (const request of mock.requests) {
 				assert.match(request.headers["tl-agent"], /^truelayer-mcp\/\d+\.\d+\.\d+ \(Node\/\d+/);
 			}
@@ -86,7 +86,7 @@ describe("authentication", () => {
 				calls += 1;
 				return calls === 1 ? { status: 401, body: { title: "Unauthenticated" } } : { body: { id } };
 			});
-			const result = await fresh.call("truelayer-get-payment", { paymentId: "p1" });
+			const result = await fresh.call("truelayer-get-payment", { payment_id: "p1" });
 			assert.equal(result.isError, false, result.text);
 			assert.deepEqual(result.json, { id: "p1" });
 			assert.equal(mock.requests.filter((r) => r.path === "/connect/token").length, 2, "a new token was fetched");
@@ -97,7 +97,7 @@ describe("authentication", () => {
 
 	test("gives up after a second 401", async () => {
 		mock.route("GET", "/v3/payments/:id", () => ({ status: 401, body: { title: "Unauthenticated" } }));
-		const result = await server.call("truelayer-get-payment", { paymentId: "p1" });
+		const result = await server.call("truelayer-get-payment", { payment_id: "p1" });
 		assert.equal(result.isError, true);
 		assert.match(result.text, /HTTP 401/);
 		assert.equal(mock.apiRequests().length, 2);
@@ -107,7 +107,7 @@ describe("authentication", () => {
 		mock.allowScopes(["payments"]);
 		const fresh = await startServer(testEnv(mock));
 		try {
-			const result = await fresh.call("truelayer-get-payment", { paymentId: "p1" });
+			const result = await fresh.call("truelayer-get-payment", { payment_id: "p1" });
 			assert.equal(result.isError, true);
 			assert.match(result.text, /POST \/connect\/token failed with HTTP 400: {"error":"invalid_scope"}/);
 		} finally {

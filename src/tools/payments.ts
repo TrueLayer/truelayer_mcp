@@ -25,12 +25,13 @@ import {
 	paymentUser,
 	providerSelection,
 	releaseChannel,
+	searchFlowConfiguration,
 	subMerchants,
 	userConsent,
 } from "./payment-schemas.js";
 import { idempotencyKey, MOVES_MONEY, READ_ONLY, run, type ToolModule, WRITES } from "./shared.js";
 
-const paymentId = z.string().min(1).describe("ID of the payment");
+const paymentId = z.string().min(1).describe("Payment ID, as returned by truelayer-create-payment");
 
 // Maps a submitted action to its endpoint and request body.
 function actionRequest(action: z.infer<typeof authorizationAction>): { path: AuthorizationAction; body: unknown } {
@@ -84,7 +85,7 @@ export const registerPaymentTools: ToolModule = (server) => {
 		{
 			title: "Create payment",
 			description:
-				"Create a single bank transfer payment (pay by bank). No money moves until the payer authorises the payment at their bank: send them to the hosted payment page (set hosted_page to get hosted_page.uri), or drive the flow with truelayer-start-payment-authorization. Returns the payment ID, status and resource_token.",
+				"Create a single bank transfer payment (pay by bank). No money moves until the payer authorises the payment at their bank: send them to the hosted payment page (set hosted_page to get hosted_page.uri), or drive the flow with truelayer-start-payment-authorization. Without a beneficiary the money goes to the configured merchant account, which holds one currency: pass a merchant_account_id in the payment's currency if it differs. Returns the payment ID, status and resource_token.",
 			inputSchema: {
 				amount_in_minor: z.number().int().min(1).describe("Amount in minor units, e.g. 100 = £1.00"),
 				currency: z.enum(["GBP", "EUR"]),
@@ -97,7 +98,9 @@ export const registerPaymentTools: ToolModule = (server) => {
 				authorization_flow: z
 					.object(authorizationFlowCapabilities)
 					.optional()
-					.describe("Start the authorization flow straight away with these UI capabilities (not with hosted_page)"),
+					.describe(
+						"Start the authorization flow straight away with these UI capabilities; can't be combined with hosted_page",
+					),
 				risk_assessment: z
 					.object({ segment: z.string().regex(/^[^()]+$/) })
 					.optional()
@@ -109,7 +112,10 @@ export const registerPaymentTools: ToolModule = (server) => {
 			annotations: WRITES,
 		},
 		(input) =>
-			run("Payment created", "Failed to create payment", () => {
+			run("Payment created", "Failed to create payment", async () => {
+				if (input.hosted_page && input.authorization_flow) {
+					throw new Error("hosted_page and authorization_flow can't be combined: use one of them");
+				}
 				const target = input.beneficiary ?? { type: "merchant_account" as const };
 				return createPayment(
 					{
@@ -143,11 +149,11 @@ export const registerPaymentTools: ToolModule = (server) => {
 			title: "Get payment",
 			description: "Retrieve payment details from TrueLayer API",
 			inputSchema: {
-				paymentId: z.string().describe("ID of the payment to retrieve"),
+				payment_id: paymentId,
 			},
 			annotations: READ_ONLY,
 		},
-		({ paymentId }) => run("Payment details", "Failed to retrieve payment", () => getPayment(paymentId)),
+		({ payment_id }) => run("Payment details", "Failed to retrieve payment", () => getPayment(payment_id)),
 	);
 
 	server.registerTool(
@@ -174,13 +180,13 @@ export const registerPaymentTools: ToolModule = (server) => {
 		{
 			title: "Submit payment authorization action",
 			description:
-				"Answer the next action of a payment's authorization flow: provider_selection (the payer's bank), scheme_selection, branch_selection, form (values keyed by input ID) or consent. Returns the following action, until the flow reaches redirect or wait.",
+				"Answer the next action of a payment's authorization flow: provider_selection (the payer's bank), scheme_selection, branch_selection, form (values keyed by input ID) or consent. Returns the following action, until the flow reaches redirect or wait. With some banks a form carries the payer's credentials or one-time code, and submitting it authorises the payment.",
 			inputSchema: {
 				payment_id: paymentId,
 				action: authorizationAction,
 				idempotency_key: idempotencyKey,
 			},
-			annotations: WRITES,
+			annotations: MOVES_MONEY,
 		},
 		({ payment_id, action, idempotency_key }) =>
 			run("Authorization flow", "Failed to submit the action", () => {
@@ -219,7 +225,7 @@ export const registerPaymentTools: ToolModule = (server) => {
 				fragment: z.string().optional().describe("Fragment the payer returned with, e.g. #code=…&state=…"),
 				idempotency_key: idempotencyKey,
 			},
-			annotations: WRITES,
+			annotations: MOVES_MONEY,
 		},
 		({ query, fragment, idempotency_key }) =>
 			run("Provider return", "Failed to submit provider return parameters", async () => {
@@ -237,7 +243,7 @@ export const registerPaymentTools: ToolModule = (server) => {
 			inputSchema: {
 				payment_id: paymentId,
 				amount_in_minor: z.number().int().min(1).optional().describe("Amount to refund; omit for a full refund"),
-				reference: z.string().min(1).describe("Reference for the refund"),
+				reference: z.string().min(1).describe("Your reference for the refund, such as a return or order number"),
 				metadata,
 				idempotency_key: idempotencyKey,
 			},
@@ -256,7 +262,7 @@ export const registerPaymentTools: ToolModule = (server) => {
 			description: "List a payment's refunds with their status, or get one refund by ID.",
 			inputSchema: {
 				payment_id: paymentId,
-				refund_id: z.string().optional().describe("Get only this refund"),
+				refund_id: z.string().min(1).optional().describe("Get only this refund"),
 			},
 			annotations: READ_ONLY,
 		},
@@ -281,12 +287,7 @@ export const registerPaymentTools: ToolModule = (server) => {
 					.enum(["bank_transfer", "vrp_sweeping", "vrp_commercial", "direct_debit"])
 					.default("bank_transfer")
 					.describe("What the provider must support; defaults to single payments (bank_transfer)"),
-				authorization_flow: z
-					.object(authorizationFlowCapabilities)
-					.optional()
-					.describe(
-						"Your UI's capabilities, as in truelayer-start-payment-authorization; defaults to redirect, provider selection and all form input types",
-					),
+				authorization_flow: searchFlowConfiguration.optional(),
 				detailed: z.boolean().optional().describe("Return the full provider objects"),
 			},
 			annotations: READ_ONLY,

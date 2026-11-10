@@ -25,7 +25,9 @@ export const countryCode = z.enum([
 
 export const releaseChannel = z
 	.enum(["general_availability", "public_beta", "private_beta"])
-	.describe("Lowest release stage of providers to include. Many EUR providers are in public_beta or private_beta.");
+	.describe(
+		"Least stable release stage to include, along with every more stable one: public_beta also returns general_availability providers. Many EUR providers are in public_beta or private_beta.",
+	);
 
 export const customerSegment = z.enum(["retail", "business", "corporate"]);
 
@@ -79,7 +81,10 @@ export const providerFilter = z
 		countries: z.array(countryCode).optional().describe("Only providers from these countries"),
 		release_channel: releaseChannel.optional(),
 		customer_segments: z.array(customerSegment).optional().describe("Default: retail only"),
-		provider_ids: z.array(z.string()).optional().describe("Providers to include"),
+		provider_ids: z
+			.array(z.string())
+			.optional()
+			.describe("Offer only these providers, e.g. mock-payments-gb-redirect; the other filters still apply"),
 		excludes: z
 			.object({ provider_ids: z.array(z.string()).optional() })
 			.optional()
@@ -148,7 +153,9 @@ export const beneficiary = z
 				.describe("Verify the payer's name and/or date of birth against their bank account"),
 		}),
 		z.object({
-			type: z.literal("external_account").describe("Pay into an external account (open loop)"),
+			type: z
+				.literal("external_account")
+				.describe("Pay into a bank account outside TrueLayer, such as your own business account"),
 			account_holder_name: holderName(40),
 			account_identifier: accountIdentifier,
 			reference: reference(18),
@@ -192,20 +199,33 @@ export const metadata = z
 
 const aisScopes = z.array(z.enum(["accounts", "balance"]));
 
-// Declares what the integrating UI can do during the authorization flow. Empty
-// objects mean "supported".
+const providerSelectionCapability = z
+	.object({
+		icon: z
+			.object({
+				type: z.enum(["default", "extended", "extended_small", "extended_medium", "extended_large"]).optional(),
+			})
+			.optional(),
+		branches: z.object({}).optional().describe("Include to support branch selection inside provider selection"),
+	})
+	.describe("Include if the UI can show a provider selection screen");
+
+const formCapability = z
+	.object({ input_types: z.array(z.enum(["text", "text_with_image", "select"])).min(1) })
+	.describe("Include if the UI can render form inputs some providers require");
+
+const consentCapability = z
+	.object({
+		action_type: z.enum(["explicit", "adjacent"]).optional(),
+		requirements: z.object({ pis: z.object({}), ais: z.object({ scopes: aisScopes }).optional() }).optional(),
+	})
+	.describe("Include if the UI captures the payer's consent itself");
+
+// Declares what the integrating UI can do during a payment's authorization
+// flow. Empty objects mean "supported". There's no user_account_selection: the
+// flow would then ask for an action the tools can't submit.
 export const authorizationFlowCapabilities = {
-	provider_selection: z
-		.object({
-			icon: z
-				.object({
-					type: z.enum(["default", "extended", "extended_small", "extended_medium", "extended_large"]).optional(),
-				})
-				.optional(),
-			branches: z.object({}).optional().describe("Include to support branch selection inside provider selection"),
-		})
-		.optional()
-		.describe("Include if the UI can show a provider selection screen"),
+	provider_selection: providerSelectionCapability.optional(),
 	scheme_selection: z.object({}).optional().describe("Include ({}) if the UI can show a scheme selection screen"),
 	branch_selection: z.object({}).optional().describe("Include ({}) if the UI can show a branch selection screen"),
 	redirect: z
@@ -215,22 +235,22 @@ export const authorizationFlowCapabilities = {
 		})
 		.optional()
 		.describe("Include if the UI can redirect the payer to their bank"),
-	form: z
-		.object({ input_types: z.array(z.enum(["text", "text_with_image", "select"])) })
-		.optional()
-		.describe("Include if the UI can render form inputs some providers require"),
-	consent: z
-		.object({
-			action_type: z.enum(["explicit", "adjacent"]).optional(),
-			requirements: z.object({ pis: z.object({}), ais: z.object({ scopes: aisScopes }).optional() }).optional(),
-		})
-		.optional()
-		.describe("Include if the UI captures the payer's consent itself"),
-	user_account_selection: z
-		.object({})
-		.optional()
-		.describe("Include ({}) if the UI can let returning payers pick a saved account"),
+	form: formCapability.optional(),
+	consent: consentCapability.optional(),
 };
+
+// The providers search takes a narrower configuration than the authorization
+// flow: four capabilities, and redirect without return URIs.
+export const searchFlowConfiguration = z
+	.object({
+		provider_selection: providerSelectionCapability.optional(),
+		redirect: z.object({}).optional().describe("Include ({}) if the UI can redirect the payer to their bank"),
+		form: formCapability.optional(),
+		consent: consentCapability.optional(),
+	})
+	.describe(
+		"Your UI's capabilities; only providers it can handle are returned. Defaults to redirect, provider selection and all form input types",
+	);
 
 export const hostedPage = z
 	.object({
@@ -239,13 +259,19 @@ export const hostedPage = z
 			.string()
 			.regex(/^[A-Z]{2}$/)
 			.optional()
-			.describe("Which banks to show first"),
+			.describe("The payer's country (ISO 3166-1 alpha-2, e.g. GB), which decides the banks the page shows first"),
 		language_code: z
 			.string()
 			.regex(/^[a-z]{2}$/)
 			.optional()
 			.describe("Overrides the browser language"),
-		max_wait_for_result: z.number().int().min(0).max(60).optional().describe("Seconds to wait for a result"),
+		max_wait_for_result: z
+			.number()
+			.int()
+			.min(0)
+			.max(60)
+			.optional()
+			.describe("Seconds the hosted page waits for the payment's result after the payer authorises it"),
 	})
 	.describe("Return a hosted payment page link (hosted_page.uri) to send the payer to");
 

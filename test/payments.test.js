@@ -10,6 +10,9 @@ const redirectNext = {
 	authorization_flow: { actions: { next: { type: "redirect", uri: "https://bank.test/auth" } } },
 };
 
+// One mock and one server are shared by every test in this file, and each test
+// reads the mock's last request: this relies on node:test running a file's tests
+// one at a time, which it does unless they opt into concurrency.
 let mock;
 let server;
 
@@ -45,15 +48,15 @@ describe("annotations", () => {
 		]) {
 			assert.equal(annotations[name].readOnlyHint, true, `${name} is read-only`);
 		}
-		for (const name of ["truelayer-cancel-payment", "truelayer-create-refund"]) {
-			assert.equal(annotations[name].destructiveHint, true, `${name} is destructive`);
-		}
 		for (const name of [
-			"truelayer-create-payment",
-			"truelayer-start-payment-authorization",
+			"truelayer-cancel-payment",
+			"truelayer-create-refund",
 			"truelayer-submit-payment-action",
 			"truelayer-submit-payment-provider-return",
 		]) {
+			assert.equal(annotations[name].destructiveHint, true, `${name} is destructive`);
+		}
+		for (const name of ["truelayer-create-payment", "truelayer-start-payment-authorization"]) {
 			assert.equal(annotations[name].readOnlyHint, false, `${name} writes`);
 			assert.equal(annotations[name].destructiveHint, false, `${name} doesn't move money by itself`);
 		}
@@ -83,6 +86,19 @@ describe("create-payment", () => {
 				beneficiary: { type: "merchant_account", merchant_account_id: MERCHANT_ACCOUNT_ID },
 			},
 			user,
+		});
+	});
+
+	test("pays into the caller's merchant account over the configured one", async () => {
+		await server.call("truelayer-create-payment", {
+			amount_in_minor: 100,
+			currency: "EUR",
+			user,
+			beneficiary: { type: "merchant_account", merchant_account_id: "eur-account" },
+		});
+		assert.deepEqual(mock.lastRequest().body.payment_method.beneficiary, {
+			type: "merchant_account",
+			merchant_account_id: "eur-account",
 		});
 	});
 
@@ -136,34 +152,47 @@ describe("create-payment", () => {
 		assert.equal(body.idempotency_key, undefined);
 	});
 
-	test("rejects invalid input before calling TrueLayer", async () => {
-		const invalid = [
-			{ amount_in_minor: 0, currency: "GBP", user },
-			{ amount_in_minor: 100, currency: "USD", user },
-			{
-				amount_in_minor: 100,
-				currency: "GBP",
-				user,
-				beneficiary: {
-					type: "external_account",
-					account_holder_name: "Jane",
-					account_identifier: { type: "sort_code_account_number", sort_code: "04-06-68", account_number: "00000871" },
-					reference: "ref",
-				},
+	// Each schema rule has a unit test in payment-schemas.test.js; this checks
+	// that the server applies them before sending anything.
+	test("rejects invalid input before calling TrueLayer, naming the field", async () => {
+		const result = await server.call("truelayer-create-payment", {
+			amount_in_minor: 100,
+			currency: "GBP",
+			user,
+			beneficiary: {
+				type: "external_account",
+				account_holder_name: "Jane",
+				account_identifier: { type: "sort_code_account_number", sort_code: "04-06-68", account_number: "00000871" },
+				reference: "ref",
 			},
-			{
-				amount_in_minor: 100,
-				currency: "GBP",
-				user,
-				metadata: Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i}`, "v"])),
-			},
-			{ amount_in_minor: 100, currency: "GBP", user, hosted_page: { return_uri: "not a url" } },
-		];
-		for (const args of invalid) {
-			const result = await server.call("truelayer-create-payment", args);
-			assert.equal(result.isError, true, `rejected: ${JSON.stringify(args).slice(0, 120)}`);
-		}
+		});
+		assert.equal(result.isError, true, result.text);
+		assert.match(result.text, /sort_code/);
 		assert.equal(mock.apiRequests().length, 0);
+	});
+
+	test("rejects hosted_page with authorization_flow before calling TrueLayer", async () => {
+		const result = await server.call("truelayer-create-payment", {
+			amount_in_minor: 100,
+			currency: "GBP",
+			user,
+			hosted_page: { return_uri: "https://example.test/return" },
+			authorization_flow: { redirect: { return_uri: "https://example.test/return" } },
+		});
+		assert.equal(result.isError, true, result.text);
+		assert.match(result.text, /can't be combined/);
+		assert.equal(mock.apiRequests().length, 0);
+	});
+
+	test("passes Tl-Should-Retry on to the error, so the assistant knows whether to reuse the key", async () => {
+		mock.route("POST", "/v3/payments", () => ({
+			status: 400,
+			body: { title: "Invalid Parameters", status: 400 },
+			headers: { "Tl-Should-Retry": "false" },
+		}));
+		const result = await server.call("truelayer-create-payment", { amount_in_minor: 100, currency: "GBP", user });
+		assert.equal(result.isError, true, result.text);
+		assert.match(result.text, /HTTP 400 \(Tl-Should-Retry: false\): .*Invalid Parameters/);
 	});
 });
 
@@ -225,7 +254,7 @@ describe("authorization flow", () => {
 			payment_id: "p",
 			action: { type: "redirect" },
 		});
-		assert.equal(result.isError, true);
+		assert.equal(result.isError, true, result.text);
 		assert.equal(mock.apiRequests().length, 0);
 	});
 
@@ -242,7 +271,7 @@ describe("authorization flow", () => {
 
 		mock.reset();
 		const empty = await server.call("truelayer-submit-payment-provider-return", {});
-		assert.equal(empty.isError, true);
+		assert.equal(empty.isError, true, empty.text);
 		assert.match(empty.text, /Provide query, fragment or both/);
 		assert.equal(mock.apiRequests().length, 0);
 	});
@@ -265,7 +294,7 @@ describe("cancel-payment", () => {
 			body: { title: "Payment cannot be cancelled", status: 400 },
 		}));
 		const result = await server.call("truelayer-cancel-payment", { payment_id: "pay1" });
-		assert.equal(result.isError, true);
+		assert.equal(result.isError, true, result.text);
 		assert.match(result.text, /HTTP 400.*Payment cannot be cancelled/);
 	});
 });
@@ -307,6 +336,12 @@ describe("refunds", () => {
 		const one = await server.call("truelayer-get-refunds", { payment_id: "pay1", refund_id: "r2" });
 		assert.deepEqual(one.json, { id: "r2", status: "pending" });
 		assert.equal(mock.lastRequest().path, "/v3/payments/pay1/refunds/r2");
+	});
+
+	test("get-refunds rejects an empty refund_id rather than listing every refund", async () => {
+		const result = await server.call("truelayer-get-refunds", { payment_id: "pay1", refund_id: "" });
+		assert.equal(result.isError, true, result.text);
+		assert.equal(mock.apiRequests().length, 0);
 	});
 });
 
@@ -369,6 +404,20 @@ describe("payments providers", () => {
 		});
 		assert.deepEqual(result.json, { items: [provider] });
 		assert.deepEqual(mock.lastRequest().body.capabilities, { mandates: { vrp_sweeping: {} } });
+	});
+
+	test("search sends the caller's own UI capabilities", async () => {
+		mock.route("POST", "/v3/payments-providers/search", () => ({ body: { items: [] } }));
+		const configuration = { redirect: {}, consent: { requirements: { pis: {} } } };
+		const result = await server.call("truelayer-search-payments-providers", { authorization_flow: configuration });
+		assert.equal(result.isError, false, result.text);
+		assert.deepEqual(mock.lastRequest().body.authorization_flow, { configuration });
+	});
+
+	test("search returns the response as is when it has no items list", async () => {
+		mock.route("POST", "/v3/payments-providers/search", () => ({ body: { unexpected: true } }));
+		const result = await server.call("truelayer-search-payments-providers", {});
+		assert.deepEqual(result.json, { unexpected: true });
 	});
 
 	test("get-payments-provider asks for this client's capabilities", async () => {
