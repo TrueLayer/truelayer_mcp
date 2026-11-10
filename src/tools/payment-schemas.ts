@@ -26,7 +26,7 @@ export const countryCode = z.enum([
 export const releaseChannel = z
 	.enum(["general_availability", "public_beta", "private_beta"])
 	.describe(
-		"Least stable release stage to include, along with every more stable one: public_beta also returns general_availability providers. Many EUR providers are in public_beta or private_beta.",
+		"The lowest stability release stage of a provider that should be returned. Many EUR providers are in public_beta or private_beta.",
 	);
 
 export const customerSegment = z.enum(["retail", "business", "corporate"]);
@@ -84,7 +84,7 @@ export const providerFilter = z
 		provider_ids: z
 			.array(z.string())
 			.optional()
-			.describe("Offer only these providers, e.g. mock-payments-gb-redirect; the other filters still apply"),
+			.describe("IDs of providers to include in those returned, e.g. mock-payments-gb-redirect"),
 		excludes: z
 			.object({ provider_ids: z.array(z.string()).optional() })
 			.optional()
@@ -222,8 +222,7 @@ const consentCapability = z
 	.describe("Include if the UI captures the payer's consent itself");
 
 // Declares what the integrating UI can do during a payment's authorization
-// flow. Empty objects mean "supported". There's no user_account_selection: the
-// flow would then ask for an action the tools can't submit.
+// flow. Empty objects mean "supported".
 export const authorizationFlowCapabilities = {
 	provider_selection: providerSelectionCapability.optional(),
 	scheme_selection: z.object({}).optional().describe("Include ({}) if the UI can show a scheme selection screen"),
@@ -237,6 +236,10 @@ export const authorizationFlowCapabilities = {
 		.describe("Include if the UI can redirect the payer to their bank"),
 	form: formCapability.optional(),
 	consent: consentCapability.optional(),
+	user_account_selection: z
+		.object({})
+		.optional()
+		.describe("Include ({}) if the UI can let returning payers pick a saved account"),
 };
 
 // The providers search takes a narrower configuration than the authorization

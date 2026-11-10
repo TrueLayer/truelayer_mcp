@@ -149,11 +149,11 @@ export const registerPaymentTools: ToolModule = (server) => {
 			title: "Get payment",
 			description: "Retrieve payment details from TrueLayer API",
 			inputSchema: {
-				payment_id: paymentId,
+				paymentId: z.string().describe("ID of the payment to retrieve"),
 			},
 			annotations: READ_ONLY,
 		},
-		({ payment_id }) => run("Payment details", "Failed to retrieve payment", () => getPayment(payment_id)),
+		({ paymentId }) => run("Payment details", "Failed to retrieve payment", () => getPayment(paymentId)),
 	);
 
 	server.registerTool(
@@ -180,7 +180,7 @@ export const registerPaymentTools: ToolModule = (server) => {
 		{
 			title: "Submit payment authorization action",
 			description:
-				"Answer the next action of a payment's authorization flow: provider_selection (the payer's bank), scheme_selection, branch_selection, form (values keyed by input ID) or consent. Returns the following action, until the flow reaches redirect or wait. With some banks a form carries the payer's credentials or one-time code, and submitting it authorises the payment.",
+				"Answer the next action of a payment's authorization flow: provider_selection (the payer's bank), scheme_selection, branch_selection, form (values keyed by input ID) or consent. Returns the following action, until the flow reaches redirect or wait.",
 			inputSchema: {
 				payment_id: paymentId,
 				action: authorizationAction,
