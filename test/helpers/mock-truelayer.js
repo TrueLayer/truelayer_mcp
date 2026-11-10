@@ -25,7 +25,11 @@ export async function startMockTrueLayer() {
 			const url = new URL(req.url, "http://localhost");
 			const signature = req.headers["tl-signature"];
 			let signatureValid = null;
+			// The headers the signature covers, from the JWS header's tl_headers.
+			let signedHeaders = null;
 			if (signature) {
+				const jwsHeader = JSON.parse(Buffer.from(signature.split(".")[0], "base64url").toString());
+				signedHeaders = jwsHeader.tl_headers ? jwsHeader.tl_headers.split(",") : [];
 				try {
 					tlSigning.verify({
 						publicKeyPem: keys.publicKey,
@@ -52,6 +56,7 @@ export async function startMockTrueLayer() {
 				headers: req.headers,
 				body,
 				signatureValid,
+				signedHeaders,
 			};
 			requests.push(request);
 

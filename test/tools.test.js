@@ -43,7 +43,7 @@ describe("tool list", () => {
 });
 
 describe("authentication", () => {
-	test("requests a signed client_credentials token with the configured scope, and reuses it", async () => {
+	test("requests a client_credentials token with the configured scope, and reuses it", async () => {
 		const fresh = await startServer(testEnv(mock, { TRUELAYER_TOKEN_SCOPE: "payments" }));
 		try {
 			mock.route("GET", "/v3/payments/:id", (_req, { id }) => ({ body: { id } }));
@@ -58,11 +58,49 @@ describe("authentication", () => {
 				scope: "payments",
 				grant_type: "client_credentials",
 			});
-			assert.equal(tokenRequests[0].signatureValid, true);
+			assert.equal(tokenRequests[0].headers["tl-signature"], undefined, "token requests aren't signed");
 			assert.equal(mock.apiRequests()[0].headers.authorization, "Bearer token:payments");
 		} finally {
 			await fresh.close();
 		}
+	});
+
+	test("sends TL-Agent on token and API requests", async () => {
+		const fresh = await startServer(testEnv(mock));
+		try {
+			mock.route("GET", "/v3/payments/:id", (_req, { id }) => ({ body: { id } }));
+			await fresh.call("truelayer-get-payment", { paymentId: "p1" });
+			for (const request of mock.requests) {
+				assert.match(request.headers["tl-agent"], /^truelayer-mcp\/\d+\.\d+\.\d+ \(Node\/\d+/);
+			}
+		} finally {
+			await fresh.close();
+		}
+	});
+
+	test("retries once with a fresh token when the API answers 401", async () => {
+		const fresh = await startServer(testEnv(mock));
+		try {
+			let calls = 0;
+			mock.route("GET", "/v3/payments/:id", (_req, { id }) => {
+				calls += 1;
+				return calls === 1 ? { status: 401, body: { title: "Unauthenticated" } } : { body: { id } };
+			});
+			const result = await fresh.call("truelayer-get-payment", { paymentId: "p1" });
+			assert.equal(result.isError, false, result.text);
+			assert.deepEqual(result.json, { id: "p1" });
+			assert.equal(mock.requests.filter((r) => r.path === "/connect/token").length, 2, "a new token was fetched");
+		} finally {
+			await fresh.close();
+		}
+	});
+
+	test("gives up after a second 401", async () => {
+		mock.route("GET", "/v3/payments/:id", () => ({ status: 401, body: { title: "Unauthenticated" } }));
+		const result = await server.call("truelayer-get-payment", { paymentId: "p1" });
+		assert.equal(result.isError, true);
+		assert.match(result.text, /HTTP 401/);
+		assert.equal(mock.apiRequests().length, 2);
 	});
 
 	test("reports a rejected token request as a tool error", async () => {
@@ -128,6 +166,7 @@ describe("payouts", () => {
 		assert.deepEqual(result.json, { id: "po1" });
 		const request = mock.lastRequest();
 		assert.equal(request.signatureValid, true);
+		assert.deepEqual(request.signedHeaders, ["Idempotency-Key"], "only the idempotency key is signed");
 		assert.match(request.headers["idempotency-key"], UUID);
 		assert.deepEqual(request.body, payout);
 	});

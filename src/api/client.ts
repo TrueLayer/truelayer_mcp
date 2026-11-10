@@ -5,6 +5,8 @@ import { getConfig } from "../config.js";
 // Client behaviour settings; credentials and endpoints come from getConfig().
 export const settings = {
 	userAgent: "truelayer-mcp/1.0.0",
+	// Identifies the integration to TrueLayer, in the format their client libraries use.
+	tlAgent: `truelayer-mcp/1.0.0 (Node/${process.versions.node})`,
 	tokenExpiryFallbackSeconds: 1800, // 30 minutes fallback if expires_in is not present
 	tokenExpiryBufferMs: 60000, // reuse a cached token until 60 seconds before it expires
 	paymentLinkExpiryHours: 24, // Payment links expire after 24 hours by default
@@ -59,37 +61,36 @@ export async function getAccessToken(scope: string = getConfig().tokenScope): Pr
 	return tokenResponse.access_token;
 }
 
+// Token requests aren't signed, matching TrueLayer's official client libraries.
 export async function generateAccessToken(scope: string = getConfig().tokenScope): Promise<AccessResponse> {
 	const path = "/connect/token";
-	const formData = new URLSearchParams({
-		client_id: getConfig().clientId,
-		client_secret: getConfig().clientSecret,
-		scope,
-		grant_type: "client_credentials",
-	}).toString();
-
-	// Headers that will be included in the signature
-	const headers = {
-		"Content-Type": "application/x-www-form-urlencoded",
-		"User-Agent": settings.userAgent,
-	};
-
-	const signature = sign("POST", path, headers, formData);
 	const response = await fetch(getConfig().authUri, {
 		method: "POST",
-		headers: { ...headers, "Tl-Signature": signature },
-		body: formData,
+		headers: {
+			"Content-Type": "application/x-www-form-urlencoded",
+			"User-Agent": settings.userAgent,
+			"TL-Agent": settings.tlAgent,
+		},
+		body: new URLSearchParams({
+			client_id: getConfig().clientId,
+			client_secret: getConfig().clientSecret,
+			scope,
+			grant_type: "client_credentials",
+		}).toString(),
 	});
 	return parseResponse<AccessResponse>("POST", path, response);
 }
 
-function sign(method: "POST" | "DELETE", path: string, headers: Record<string, string>, body: string): string {
+// Signs like TrueLayer's Java, .NET and PHP libraries: method, path, the
+// Idempotency-Key header and the body. Leaving the other headers out of the
+// signature means proxies that rewrite them don't invalidate it.
+function sign(method: "POST" | "DELETE", path: string, idempotencyKey: string, body: string): string {
 	return tlSigning.sign({
 		kid: getConfig().kid,
 		privateKeyPem: getConfig().privateKeyPem,
 		method: method === "POST" ? tlSigning.HttpMethod.Post : tlSigning.HttpMethod.Delete,
 		path,
-		headers,
+		headers: { "Idempotency-Key": idempotencyKey },
 		body,
 	});
 }
@@ -99,11 +100,12 @@ export interface RequestOptions {
 	body?: unknown;
 	// Query string parameters; undefined values are skipped.
 	query?: Record<string, string | undefined>;
-	// Sign the request with Tl-Signature. Required by some Payments API endpoints.
+	// Sign the request with Tl-Signature. Defaults to true for every non-GET
+	// request, as TrueLayer's client libraries do for the Payments API.
 	sign?: boolean;
-	// Send an Idempotency-Key header. `true` generates a fresh UUID; a string is
-	// sent as is, so a caller retrying an operation can reuse the same key.
-	idempotencyKey?: string | boolean;
+	// Idempotency key for non-GET requests: sent as is, so a caller retrying an
+	// operation can reuse it. A fresh UUID is generated when omitted.
+	idempotencyKey?: string;
 	// Extra headers, such as Connection-Id or Tl-User-IP; undefined values are skipped.
 	headers?: Record<string, string | undefined>;
 	// Token scope; defaults to the configured Payments API scopes.
@@ -115,7 +117,6 @@ export async function apiRequest<T = unknown>(
 	path: string,
 	options: RequestOptions = {},
 ): Promise<T> {
-	const accessToken = await getAccessToken(options.scope);
 	const query = new URLSearchParams(
 		Object.entries(options.query ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined),
 	).toString();
@@ -123,35 +124,53 @@ export async function apiRequest<T = unknown>(
 	const bodyStr = options.body === undefined ? undefined : JSON.stringify(options.body);
 
 	const headers: Record<string, string> = {
-		Authorization: `Bearer ${accessToken}`,
 		Accept: "application/json; charset=UTF-8",
 		"User-Agent": settings.userAgent,
+		"TL-Agent": settings.tlAgent,
 	};
 	if (bodyStr !== undefined) {
 		headers["Content-Type"] = "application/json; charset=UTF-8";
 	}
-	if (options.idempotencyKey) {
-		headers["Idempotency-Key"] = options.idempotencyKey === true ? uuidv4() : options.idempotencyKey;
+	if (method !== "GET") {
+		// Generated once, so the retry below reuses it.
+		const idempotencyKey = options.idempotencyKey ?? uuidv4();
+		headers["Idempotency-Key"] = idempotencyKey;
+		if (options.sign ?? true) {
+			headers["Tl-Signature"] = sign(method, path, idempotencyKey, bodyStr ?? "");
+		}
 	}
 	for (const [name, value] of Object.entries(options.headers ?? {})) {
 		if (value !== undefined) headers[name] = value;
 	}
-	if (options.sign) {
-		if (method === "GET") throw new Error("GET requests are not signed");
-		headers["Tl-Signature"] = sign(method, path, headers, bodyStr ?? "");
-	}
 
-	const response = await fetch(`${getConfig().apiUri}${fullPath}`, { method, headers, body: bodyStr });
+	const scope = options.scope ?? getConfig().tokenScope;
+	const send = async () =>
+		fetch(`${getConfig().apiUri}${fullPath}`, {
+			method,
+			headers: { ...headers, Authorization: `Bearer ${await getAccessToken(scope)}` },
+			body: bodyStr,
+		});
+
+	let response = await send();
+	if (response.status === 401) {
+		// The cached token may have been revoked or expired early: retry once
+		// with a fresh one, as TrueLayer's Java library does.
+		tokenCache.delete(scope);
+		response = await send();
+	}
 	return parseResponse<T>(method, fullPath, response);
 }
 
-export function apiGet<T = unknown>(path: string, options: Omit<RequestOptions, "body" | "sign"> = {}): Promise<T> {
+export function apiGet<T = unknown>(
+	path: string,
+	options: Omit<RequestOptions, "body" | "sign" | "idempotencyKey"> = {},
+): Promise<T> {
 	return apiRequest<T>("GET", path, options);
 }
 
-// Signed POST with an idempotency key, as most Payments API v3 writes require.
+// Signed POST with an idempotency key, as Payments API v3 writes require.
 export function apiSignedPost<T = unknown>(path: string, body: unknown, idempotencyKey?: string): Promise<T> {
-	return apiRequest<T>("POST", path, { body, sign: true, idempotencyKey: idempotencyKey ?? true });
+	return apiRequest<T>("POST", path, { body, idempotencyKey });
 }
 
 // Builds a request path from a template, URL-encoding each parameter.
