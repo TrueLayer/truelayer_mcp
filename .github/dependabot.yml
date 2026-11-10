@@ -1,0 +1,42 @@
+# Dependency updates. TrueLayer uses Dependabot for npm (see "Updating
+# dependencies via Renovate vs Dependabot" in Notion). Security updates are
+# raised as they're found, independently of this schedule.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/London"
+    # Bump the ranges in package.json as well as the lockfile.
+    versioning-strategy: "increase"
+    open-pull-requests-limit: 5
+    # chore(deps): ... and chore(deps-dev): ..., matching Conventional Commits.
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      # Minor and patch updates in one PR; majors get their own PR each.
+      minor-and-patch:
+        applies-to: "version-updates"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/London"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      actions:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
