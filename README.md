@@ -32,7 +32,7 @@ The server covers part of the TrueLayer API. ✅ means every endpoint of the pro
 | Merchant accounts                              | 🟡     | `truelayer-get-merchant-account`, `truelayer-list-merchant-accounts`, `truelayer-list-transactions` | Payment sources, sweeping                                                                                                                           |
 | Mandates and variable recurring payments (VRP) | ❌     |                                                                                                     | Creating, getting, listing and revoking mandates, funds checks, constraints, payments under a mandate                                               |
 | Data API v3 (account information, UK)          | ✅     | Connections, user info, accounts, balances, transactions; see [Data API v3 tools](#data-api-v3)     | Connection and transactions request webhooks (the tools poll instead)                                                                               |
-| Data API v1 (legacy)                           | ❌     |                                                                                                     | Superseded by v3. Covers what v3 doesn't yet (cards, standing orders, direct debits, banks outside the UK), but needs a per-user OAuth token flow   |
+| Data API v1 (legacy)                           | ❌     |                                                                                                     | Superseded by v3. Covers what v3 doesn't (cards, standing orders, direct debits, banks outside the UK), but needs a per-user OAuth token flow       |
 | Verification                                   | ❌     |                                                                                                     | Account holder name verification                                                                                                                    |
 | Signup+                                        | ❌     |                                                                                                     | Identity data for onboarding                                                                                                                        |
 | Providers                                      | ❌     |                                                                                                     | Searching for and looking up banks                                                                                                                  |
@@ -40,7 +40,7 @@ The server covers part of the TrueLayer API. ✅ means every endpoint of the pro
 
 The payout tools need the `paydirect` token scope, which is only available if Payouts is enabled on your client (see `TRUELAYER_TOKEN_SCOPE` below).
 
-The Data API v3 tools need Data API v3 enabled on your client. They request their own token with the `data` scope, separately from the payments token, so the payments tools keep working on clients without Data.
+The Data API v3 tools need Data API v3 enabled on your client, which TrueLayer does on request: contact TrueLayer to enable it. They request their own token with the `data` scope, separately from the payments token, so the payments tools keep working on clients without Data.
 
 ## Setup
 
@@ -143,7 +143,7 @@ When you ask Claude about these operations, it will use the MCP server to execut
 
 ## Available Tools
 
-Every tool declares MCP annotations so clients can decide when to ask before running it: read-only tools set `readOnlyHint`, and tools that move money or can't be undone set `destructiveHint` (marked 💸 below). Tools that create something accept an optional `idempotency_key`; reuse it when retrying, so TrueLayer doesn't perform the operation twice.
+Every tool declares MCP annotations so clients can decide when to ask before running it: read-only tools set `readOnlyHint`, and tools that move money or can't be undone set `destructiveHint` (marked 💸 below). The payout and payment link tools accept an optional `idempotency_key`; reuse it when retrying, so TrueLayer doesn't perform the operation twice. The Data API v3 doesn't take idempotency keys, so each call to `truelayer-data-create-connection` creates a new connection.
 
 ### Merchant accounts
 
@@ -167,13 +167,13 @@ Every tool declares MCP annotations so clients can decide when to ask before run
 
 ### Data API v3
 
-Read a user's bank account data (UK banks). First create a connection: the user authorises it on TrueLayer's hosted page (`hosted_page.uri`), choosing their bank, consenting and logging in. Then read their data with the connection ID. Calls made without the user present are rate limited to 4 per day; pass the user's IP address as `user_ip` when they are present.
+Read a user's bank account data (UK banks). First create a connection: the user authorises it on TrueLayer's hosted page (`hosted_page.uri`), choosing their bank, consenting and logging in. Then read their data with the connection ID. Calls made without the account holder present are rate limited to 4 per day. TrueLayer passes `user_ip` to the bank as the account holder's IP address, to show they're present: only pass it when the account holder is in a session they started, with their own IP address, never yours.
 
 - `truelayer-data-create-connection`: start a connection with the scopes the user is asked to share (info, accounts, balance, transactions)
 - `truelayer-data-get-user-info`: the user's name as held by their bank
 - `truelayer-data-list-accounts`: the connected accounts, with identifiers and account holder names
 - `truelayer-data-get-balance`: an account's current and available balance and overdraft
-- `truelayer-data-get-transactions`: an account's transactions between two dates, optionally with categories and merchant names; waits for TrueLayer to prepare them
+- `truelayer-data-get-transactions`: an account's transactions between two dates, optionally with categories and merchant names; waits for TrueLayer to prepare them. Each call is a new request to the bank, so fetch a result that wasn't ready with the next tool instead of calling it again
 - `truelayer-data-get-transactions-request`: fetch a transactions result that wasn't ready in time
 
 ## License

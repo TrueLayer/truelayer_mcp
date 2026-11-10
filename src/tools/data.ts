@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TrueLayerApiError } from "../api/client.js";
 import {
 	createConnection,
 	createTransactionsRequest,
@@ -8,6 +9,7 @@ import {
 	listAccounts,
 	type TransactionsRequestResult,
 } from "../api/data.js";
+import { poll } from "./polling.js";
 import { READ_ONLY, run, type ToolModule, WRITES } from "./shared.js";
 
 // Data API v3 tools: create a connection the user authorises at their bank,
@@ -21,7 +23,7 @@ const userIp = z
 	.string()
 	.optional()
 	.describe(
-		"The end user's IP address, when they're present. Lifts the limit of 4 calls per day that applies when the user isn't present.",
+		"Only the account holder's own IP address, taken from a session they started and are in now. TrueLayer passes it to the bank as proof the account holder is present, which lifts the limit of 4 calls per day. Never pass your own IP address or a made-up one; omit it when the account holder isn't present.",
 	);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
 
@@ -33,14 +35,13 @@ const providerFilter = z
 			.describe("Only providers from these countries"),
 		release_channel: z.enum(["general_availability", "public_beta", "private_beta"]).optional(),
 		customer_segments: z.array(z.enum(["retail", "business", "corporate"])).optional(),
-		provider_ids: z.array(z.string()).optional().describe("Providers to include"),
+		provider_ids: z
+			.array(z.string())
+			.optional()
+			.describe("Offer only these banks, e.g. ob-monzo; the other filters still apply"),
 		excludes: z.object({ provider_ids: z.array(z.string()).optional() }).optional(),
 	})
 	.describe("Constrains which banks the user can choose from");
-
-// Polling schedule for transactions requests: start quickly, then back off.
-const POLL_DELAYS_MS = [500, 1000, 1500, 2000];
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // TrueLayer rejects the token request with invalid_scope when Data API v3 isn't
 // enabled for the client; say so instead of only passing the OAuth error on.
@@ -48,7 +49,7 @@ async function withDataHint<T>(fn: () => Promise<T>): Promise<T> {
 	try {
 		return await fn();
 	} catch (error) {
-		if (error instanceof Error && /\/connect\/token .*invalid_scope/.test(error.message)) {
+		if (error instanceof TrueLayerApiError && error.path === "/connect/token" && error.body.includes("invalid_scope")) {
 			throw new Error(
 				`Data API v3 isn't enabled for this client: the token request for the \`data\` scope was rejected (${error.message})`,
 			);
@@ -84,7 +85,7 @@ export const registerDataTools: ToolModule = (server) => {
 		{
 			title: "Create data connection",
 			description:
-				"Start connecting a user's bank account with Data API v3 (UK). Returns the connection ID and, with hosted_page type authorization_flow, a hosted_page.uri to send the user to: they choose their bank, consent and log in. Once they've authorised, read their data with the other truelayer-data-* tools using the connection ID.",
+				"Start connecting a user's bank account with Data API v3 (UK). Pass either hosted_page or authorization_flow. With hosted_page type authorization_flow (most clients), it returns the connection ID and a hosted_page.uri to send the user to: they choose their bank, consent and log in. With authorization_flow (regulated clients), it returns status authorizing and authorization_flow.actions.next, usually a redirect with the bank's uri. Once the user has authorised, read their data with the other truelayer-data-* tools using the connection ID.",
 			inputSchema: {
 				scopes: z
 					.array(z.enum(DATA_SCOPES))
@@ -97,15 +98,19 @@ export const registerDataTools: ToolModule = (server) => {
 						z.object({ type: z.literal("preselected"), provider_id: z.string().describe("e.g. ob-monzo") }),
 					])
 					.default({ type: "user_selected" })
-					.describe("How the bank is chosen; defaults to the user choosing on TrueLayer's page"),
+					.describe(
+						"How the bank is chosen; defaults to the user choosing on TrueLayer's page. Must be preselected with authorization_flow.",
+					),
 				user: z
 					.object({
-						id: z.string().optional().describe("Your ID for the user; TrueLayer creates one if omitted"),
+						id: z.guid().optional().describe("Your ID for the user, a UUID; TrueLayer creates one if omitted"),
 						name: z
 							.string()
-							.regex(/^[^()]+$/)
+							.regex(/^[^()]+$/, "Must not contain parentheses")
 							.optional()
-							.describe("Full name; required unless you have an AISP licence"),
+							.describe(
+								"Full first and last name, not initials, without parentheses (TrueLayer rejects them); required unless you have an AISP licence",
+							),
 						email: z.string().optional().describe("Email; email or phone is required unless you have an AISP licence"),
 						phone: z.string().optional().describe("Phone number including the country calling code"),
 					})
@@ -115,11 +120,15 @@ export const registerDataTools: ToolModule = (server) => {
 						z.object({ type: z.literal("authorization_flow_captured") }),
 						z.object({
 							type: z.literal("precaptured"),
-							captured_at: z.string().describe("When you captured the user's consent (UTC)"),
+							captured_at: z
+								.string()
+								.describe("When you captured the user's consent, as a UTC timestamp, e.g. 2026-11-10T09:30:00.000Z"),
 						}),
 					])
 					.default({ type: "authorization_flow_captured" })
-					.describe("How consent is captured; defaults to TrueLayer capturing it during the flow"),
+					.describe(
+						"How consent is captured; defaults to TrueLayer capturing it during the flow. Must be precaptured with authorization_flow.",
+					),
 				hosted_page: z
 					.discriminatedUnion("type", [
 						z.object({
@@ -143,11 +152,15 @@ export const registerDataTools: ToolModule = (server) => {
 						}),
 					])
 					.optional()
-					.describe("TrueLayer's hosted pages. Most clients use type authorization_flow."),
+					.describe(
+						"TrueLayer's hosted pages. Most clients use type authorization_flow; result_page goes with authorization_flow. Required unless authorization_flow is given.",
+					),
 				authorization_flow: z
 					.object({ redirect: z.object({ return_uri: z.url() }) })
 					.optional()
-					.describe("Regulated (AISP) clients running their own journey: redirect straight to the bank"),
+					.describe(
+						"Regulated (AISP) clients running their own journey: redirect straight to the bank. Needs a preselected provider_selection and precaptured user_consent, and can't be combined with hosted_page type authorization_flow.",
+					),
 				data_access_type: z
 					.enum(["one_time", "recurring"])
 					.optional()
@@ -167,6 +180,17 @@ export const registerDataTools: ToolModule = (server) => {
 						throw new Error(
 							"Provide hosted_page (TrueLayer's hosted journey, for most clients) or authorization_flow (regulated clients)",
 						);
+					}
+					if (body.authorization_flow) {
+						// TrueLayer's connections API rejects these combinations.
+						if (body.hosted_page?.type === "authorization_flow") {
+							throw new Error("authorization_flow can't be combined with hosted_page type authorization_flow");
+						}
+						if (body.provider_selection.type !== "preselected" || body.user_consent.type !== "precaptured") {
+							throw new Error(
+								"authorization_flow needs provider_selection type preselected and user_consent type precaptured",
+							);
+						}
 					}
 					return createConnection(body, user_ip);
 				}),
@@ -225,7 +249,7 @@ export const registerDataTools: ToolModule = (server) => {
 		{
 			title: "Get connected account transactions",
 			description:
-				"Get a connected account's transactions between two dates (needs the transactions scope). TrueLayer prepares them asynchronously: this waits up to wait_seconds for the result; if it isn't ready, it returns the request_id to fetch later with truelayer-data-get-transactions-request.",
+				"Get a connected account's transactions between two dates (needs the transactions scope). Each call creates a new transactions request, which fetches from the bank again and counts towards the limit of 4 calls per day when the user isn't present. TrueLayer prepares them asynchronously: this waits up to wait_seconds for the result; if it isn't ready, or checking it fails, it returns the request_id. Then fetch the result with truelayer-data-get-transactions-request; don't call this tool again for the same dates.",
 			inputSchema: {
 				connection_id: connectionId,
 				account_id: accountId,
@@ -238,9 +262,9 @@ export const registerDataTools: ToolModule = (server) => {
 					.number()
 					.int()
 					.min(0)
-					.max(60)
+					.max(45)
 					.default(20)
-					.describe("How long to wait for the result (default 20, 0 to return straight away)"),
+					.describe("How long to wait for the result (default 20, at most 45, 0 to return straight away)"),
 				user_ip: userIp,
 			},
 			annotations: READ_ONLY,
@@ -260,14 +284,20 @@ export const registerDataTools: ToolModule = (server) => {
 						},
 						user_ip,
 					);
-					let result: TransactionsRequestResult = created;
-					const deadline = Date.now() + wait_seconds * 1000;
-					for (let attempt = 0; result.status === "pending" && Date.now() < deadline; attempt++) {
-						const delay = POLL_DELAYS_MS[Math.min(attempt, POLL_DELAYS_MS.length - 1)];
-						await sleep(Math.min(delay, Math.max(0, deadline - Date.now())));
-						result = await getTransactionsRequest(connection_id, account_id, created.id, user_ip);
-					}
-					return describeTransactions(result);
+					const { result, error } = await poll<TransactionsRequestResult>(
+						created,
+						(r) => r.status === "pending",
+						() => getTransactionsRequest(connection_id, account_id, created.id, user_ip),
+						wait_seconds * 1000,
+					);
+					if (error === undefined) return describeTransactions(result);
+					// The request exists: report its ID, so the result can still be fetched.
+					const reason = error instanceof Error ? error.message : String(error);
+					return {
+						request_id: created.id,
+						status: result.status,
+						message: `Checking the result failed (${reason}): fetch it later with truelayer-data-get-transactions-request, without creating a new request.`,
+					};
 				}),
 			),
 	);

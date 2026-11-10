@@ -1,13 +1,13 @@
 import { apiGet, apiPath, apiRequest } from "./client.js";
 
 // Data API v3. Every endpoint is called with a client_credentials token that
-// has the `data` scope. It is requested separately from the Payments API token,
-// so clients without Data enabled keep working for payments. Data v3 requests
-// aren't signed: the API reference doesn't list Tl-Signature for any of them.
+// has the `data` scope (see getAccessToken). Data v3 requests aren't signed:
+// the API reference doesn't list Tl-Signature for any of them.
 export const DATA_SCOPE = "data";
 
-// Tl-User-IP marks the end user as present, which lifts the limit of 4 calls
-// per day for unattended access.
+// Tl-User-IP marks the account holder as present: TrueLayer passes it to the
+// bank as their IP address, which lifts the limit of 4 calls per day for
+// unattended access.
 function dataHeaders(connectionId?: string, userIp?: string) {
 	return { "Connection-Id": connectionId, "Tl-User-IP": userIp };
 }

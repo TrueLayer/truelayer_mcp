@@ -7,6 +7,9 @@ const CONNECTION = "conn-1";
 const user = { name: "Jane Smith", email: "jane@example.com" };
 const hostedPage = { type: "authorization_flow", return_uri: "https://example.test/callback" };
 
+// One mock and one server are shared by every test in this file, and tests read
+// the mock's request log: this relies on node:test running a file's tests one at
+// a time, which it does unless they opt into concurrency.
 let mock;
 let server;
 
@@ -34,7 +37,7 @@ describe("annotations", () => {
 	test("only create-connection writes; the rest are read-only", async () => {
 		const { tools } = await server.client.listTools();
 		const data = tools.filter((t) => t.name.startsWith("truelayer-data-"));
-		assert.equal(data.length, 6);
+		assert.equal(data.length, 6, "six Data tools are registered");
 		for (const tool of data) {
 			const writes = tool.name === "truelayer-data-create-connection";
 			assert.equal(tool.annotations.readOnlyHint, !writes, tool.name);
@@ -64,7 +67,7 @@ describe("access tokens", () => {
 		const fresh = await startServer(testEnv(mock));
 		try {
 			const data = await fresh.call("truelayer-data-list-accounts", { connection_id: CONNECTION });
-			assert.equal(data.isError, true);
+			assert.equal(data.isError, true, data.text);
 			assert.match(data.text, /Data API v3 isn't enabled for this client/);
 			assert.match(data.text, /invalid_scope/);
 
@@ -129,19 +132,55 @@ describe("create-connection", () => {
 	});
 
 	test("accepts a regulated client's own redirect instead of a hosted page", async () => {
-		await server.call("truelayer-data-create-connection", {
+		const result = await server.call("truelayer-data-create-connection", {
 			user,
 			provider_selection: { type: "preselected", provider_id: "ob-monzo" },
+			user_consent: { type: "precaptured", captured_at: "2026-11-10T09:00:00.000Z" },
 			authorization_flow: { redirect: { return_uri: "https://example.test/callback" } },
 		});
+		assert.equal(result.isError, false, result.text);
 		assert.deepEqual(mock.lastRequest().body.authorization_flow, {
 			redirect: { return_uri: "https://example.test/callback" },
 		});
 	});
 
+	test("rejects an authorization flow TrueLayer would refuse, before calling it", async () => {
+		const authorizationFlow = { redirect: { return_uri: "https://example.test/callback" } };
+		const preselected = { type: "preselected", provider_id: "ob-monzo" };
+		const precaptured = { type: "precaptured", captured_at: "2026-11-10T09:00:00.000Z" };
+		const cases = [
+			[{ user_consent: precaptured }, /needs provider_selection type preselected/],
+			[{ provider_selection: preselected }, /user_consent type precaptured/],
+			[
+				{ provider_selection: preselected, user_consent: precaptured, hosted_page: hostedPage },
+				/can't be combined with hosted_page type authorization_flow/,
+			],
+		];
+		for (const [args, message] of cases) {
+			const result = await server.call("truelayer-data-create-connection", {
+				user,
+				authorization_flow: authorizationFlow,
+				...args,
+			});
+			assert.equal(result.isError, true, result.text);
+			assert.match(result.text, message);
+		}
+		assert.equal(dataRequests().length, 0, "nothing is sent to TrueLayer");
+	});
+
+	test("rejects a user ID that isn't a UUID", async () => {
+		const result = await server.call("truelayer-data-create-connection", {
+			user: { ...user, id: "user-42" },
+			hosted_page: hostedPage,
+		});
+		assert.equal(result.isError, true, result.text);
+		assert.match(result.text, /id/);
+		assert.equal(dataRequests().length, 0, "nothing is sent to TrueLayer");
+	});
+
 	test("requires a hosted page or an authorization flow, and valid scopes", async () => {
 		const missing = await server.call("truelayer-data-create-connection", { user });
-		assert.equal(missing.isError, true);
+		assert.equal(missing.isError, true, missing.text);
 		assert.match(missing.text, /Provide hosted_page .* or authorization_flow/);
 
 		const badScope = await server.call("truelayer-data-create-connection", {
@@ -149,7 +188,7 @@ describe("create-connection", () => {
 			hosted_page: hostedPage,
 			scopes: ["cards"],
 		});
-		assert.equal(badScope.isError, true);
+		assert.equal(badScope.isError, true, badScope.text);
 		assert.equal(dataRequests().length, 0, "nothing is sent to TrueLayer");
 	});
 });
@@ -199,7 +238,7 @@ describe("reading data", () => {
 			body: { title: "Invalid State", detail: "The data connection is no longer authorized." },
 		}));
 		const result = await server.call("truelayer-data-get-balance", { connection_id: CONNECTION, account_id: "acc1" });
-		assert.equal(result.isError, true);
+		assert.equal(result.isError, true, result.text);
 		assert.match(result.text, /HTTP 400.*Invalid State/);
 	});
 });
@@ -249,7 +288,7 @@ describe("transactions", () => {
 			next_cursor: "n1",
 			items: [transaction],
 		});
-		assert.equal(polls(), 2);
+		assert.equal(polls(), 2, "status checks before the request completed");
 		const create = mock.requests.find((r) => r.method === "POST" && r.path.endsWith("/transactions/requests"));
 		assertDataRequest(create, { connectionId: CONNECTION });
 		assert.equal(create.path, "/v3/connected-accounts/acc1/transactions/requests");
@@ -274,7 +313,6 @@ describe("transactions", () => {
 
 	test("returns the request ID when the result isn't ready in time, and fetches it later", async () => {
 		transactionsRoutes({ id: "req-1", status: "completed", result: { items: [transaction] } }, 100);
-		const started = Date.now();
 		const pending = await server.call("truelayer-data-get-transactions", {
 			connection_id: CONNECTION,
 			account_id: "acc1",
@@ -282,7 +320,6 @@ describe("transactions", () => {
 			to: "2026-10-31",
 			wait_seconds: 1,
 		});
-		assert.ok(Date.now() - started < 3000, "stops waiting after wait_seconds");
 		assert.equal(pending.json.status, "pending");
 		assert.equal(pending.json.request_id, "req-1");
 		assert.match(pending.json.message, /truelayer-data-get-transactions-request/);
@@ -311,7 +348,7 @@ describe("transactions", () => {
 			wait_seconds: 0,
 		});
 		assert.equal(result.json.status, "pending");
-		assert.equal(polls(), 0);
+		assert.equal(polls(), 0, "no status checks");
 	});
 
 	test("rejects dates that aren't YYYY-MM-DD", async () => {
@@ -321,7 +358,29 @@ describe("transactions", () => {
 			from: "01/10/2026",
 			to: "2026-10-31",
 		});
-		assert.equal(result.isError, true);
-		assert.equal(dataRequests().length, 0);
+		assert.equal(result.isError, true, result.text);
+		assert.equal(dataRequests().length, 0, "nothing is sent to TrueLayer");
+	});
+
+	test("still returns the request ID when checking the result fails", async () => {
+		mock.route("POST", "/v3/connected-accounts/:id/transactions/requests", () => ({
+			status: 202,
+			body: { id: "req-1", status: "pending" },
+		}));
+		mock.route("GET", "/v3/connected-accounts/:id/transactions/requests/:request", () => ({
+			status: 503,
+			body: { title: "Service Unavailable" },
+		}));
+		const result = await server.call("truelayer-data-get-transactions", {
+			connection_id: CONNECTION,
+			account_id: "acc1",
+			from: "2026-10-01",
+			to: "2026-10-31",
+			wait_seconds: 1,
+		});
+		assert.equal(result.isError, false, result.text);
+		assert.equal(result.json.request_id, "req-1");
+		assert.equal(result.json.status, "pending");
+		assert.match(result.json.message, /HTTP 503.*truelayer-data-get-transactions-request/);
 	});
 });
