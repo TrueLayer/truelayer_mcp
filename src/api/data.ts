@@ -5,9 +5,8 @@ import { apiGet, apiPath, apiRequest } from "./client.js";
 // the API reference doesn't list Tl-Signature for any of them.
 export const DATA_SCOPE = "data";
 
-// Tl-User-IP marks the account holder as present: TrueLayer passes it to the
-// bank as their IP address, which lifts the limit of 4 calls per day for
-// unattended access.
+// Tl-User-IP records the end user's IP address and marks them as present,
+// which lifts the limit of 4 calls per day for unattended access.
 function dataHeaders(connectionId?: string, userIp?: string) {
 	return { "Connection-Id": connectionId, "Tl-User-IP": userIp };
 }

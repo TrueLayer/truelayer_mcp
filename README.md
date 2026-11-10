@@ -40,7 +40,7 @@ The server covers part of the TrueLayer API. ✅ means every endpoint of the pro
 
 The payout tools need the `paydirect` token scope, which is only available if Payouts is enabled on your client (see `TRUELAYER_TOKEN_SCOPE` below).
 
-The Data API v3 tools need Data API v3 enabled on your client, which TrueLayer does on request: contact TrueLayer to enable it. They request their own token with the `data` scope, separately from the payments token, so the payments tools keep working on clients without Data.
+The Data API v3 tools need Data API v3 enabled on your client. They request their own token with the `data` scope, separately from the payments token, so the payments tools keep working on clients without Data.
 
 ## Setup
 
@@ -167,7 +167,7 @@ Every tool declares MCP annotations so clients can decide when to ask before run
 
 ### Data API v3
 
-Read a user's bank account data (UK banks). First create a connection: the user authorises it on TrueLayer's hosted page (`hosted_page.uri`), choosing their bank, consenting and logging in. Then read their data with the connection ID. Calls made without the account holder present are rate limited to 4 per day. TrueLayer passes `user_ip` to the bank as the account holder's IP address, to show they're present: only pass it when the account holder is in a session they started, with their own IP address, never yours.
+Read a user's bank account data (UK banks). First create a connection: the user authorises it on TrueLayer's hosted page (`hosted_page.uri`), choosing their bank, consenting and logging in. Then read their data with the connection ID. Calls made without the user present are rate limited to 4 per day; pass the user's IP address as `user_ip` when they are present.
 
 - `truelayer-data-create-connection`: start a connection with the scopes the user is asked to share (info, accounts, balance, transactions)
 - `truelayer-data-get-user-info`: the user's name as held by their bank

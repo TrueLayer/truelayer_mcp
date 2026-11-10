@@ -135,7 +135,6 @@ describe("create-connection", () => {
 		const result = await server.call("truelayer-data-create-connection", {
 			user,
 			provider_selection: { type: "preselected", provider_id: "ob-monzo" },
-			user_consent: { type: "precaptured", captured_at: "2026-11-10T09:00:00.000Z" },
 			authorization_flow: { redirect: { return_uri: "https://example.test/callback" } },
 		});
 		assert.equal(result.isError, false, result.text);
@@ -144,37 +143,14 @@ describe("create-connection", () => {
 		});
 	});
 
-	test("rejects an authorization flow TrueLayer would refuse, before calling it", async () => {
-		const authorizationFlow = { redirect: { return_uri: "https://example.test/callback" } };
-		const preselected = { type: "preselected", provider_id: "ob-monzo" };
-		const precaptured = { type: "precaptured", captured_at: "2026-11-10T09:00:00.000Z" };
-		const cases = [
-			[{ user_consent: precaptured }, /needs provider_selection type preselected/],
-			[{ provider_selection: preselected }, /user_consent type precaptured/],
-			[
-				{ provider_selection: preselected, user_consent: precaptured, hosted_page: hostedPage },
-				/can't be combined with hosted_page type authorization_flow/,
-			],
-		];
-		for (const [args, message] of cases) {
-			const result = await server.call("truelayer-data-create-connection", {
-				user,
-				authorization_flow: authorizationFlow,
-				...args,
-			});
-			assert.equal(result.isError, true, result.text);
-			assert.match(result.text, message);
-		}
-		assert.equal(dataRequests().length, 0, "nothing is sent to TrueLayer");
-	});
-
-	test("rejects a user ID that isn't a UUID", async () => {
+	test("rejects authorization_flow with a hosted page of type authorization_flow, as the API reference does", async () => {
 		const result = await server.call("truelayer-data-create-connection", {
-			user: { ...user, id: "user-42" },
+			user,
 			hosted_page: hostedPage,
+			authorization_flow: { redirect: { return_uri: "https://example.test/callback" } },
 		});
 		assert.equal(result.isError, true, result.text);
-		assert.match(result.text, /id/);
+		assert.match(result.text, /can't be combined with hosted_page type authorization_flow/);
 		assert.equal(dataRequests().length, 0, "nothing is sent to TrueLayer");
 	});
 
@@ -362,7 +338,7 @@ describe("transactions", () => {
 		assert.equal(dataRequests().length, 0, "nothing is sent to TrueLayer");
 	});
 
-	test("still returns the request ID when checking the result fails", async () => {
+	test("names the request ID when checking the result fails", async () => {
 		mock.route("POST", "/v3/connected-accounts/:id/transactions/requests", () => ({
 			status: 202,
 			body: { id: "req-1", status: "pending" },
@@ -378,9 +354,7 @@ describe("transactions", () => {
 			to: "2026-10-31",
 			wait_seconds: 1,
 		});
-		assert.equal(result.isError, false, result.text);
-		assert.equal(result.json.request_id, "req-1");
-		assert.equal(result.json.status, "pending");
-		assert.match(result.json.message, /HTTP 503.*truelayer-data-get-transactions-request/);
+		assert.equal(result.isError, true, result.text);
+		assert.match(result.text, /transactions request req-1 failed .*HTTP 503.*truelayer-data-get-transactions-request/);
 	});
 });
