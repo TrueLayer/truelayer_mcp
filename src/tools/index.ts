@@ -1,3 +1,4 @@
+import { registerDataTools } from "./data.js";
 import { registerMerchantAccountTools } from "./merchant-accounts.js";
 import { registerPaymentLinkTools } from "./payment-links.js";
 import { registerPaymentTools } from "./payments.js";
@@ -10,4 +11,5 @@ export const toolModules: ToolModule[] = [
 	registerPaymentTools,
 	registerPaymentLinkTools,
 	registerPayoutTools,
+	registerDataTools,
 ];

@@ -22,7 +22,7 @@ Given that AI assistants may not always produce deterministic behaviors, and for
 
 ### Product coverage
 
-The server covers part of the TrueLayer API. 🟡 means some operations are available and others aren't; ❌ means the product isn't covered at all. The "Not covered" column lists the main gaps and isn't exhaustive; see the [TrueLayer API reference](https://docs.truelayer.com/reference) for everything each product offers.
+The server covers part of the TrueLayer API. ✅ means every endpoint of the product is covered, 🟡 means some operations are available and others aren't, and ❌ means the product isn't covered at all. The "Not covered" column lists the main gaps and isn't exhaustive; see the [TrueLayer API reference](https://docs.truelayer.com/reference) for everything each product offers.
 
 | Product                                        | Status | Tools                                                                                               | Not covered                                                                                                                                         |
 | ---------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -31,13 +31,16 @@ The server covers part of the TrueLayer API. 🟡 means some operations are avai
 | Payouts                                        | 🟡     | `truelayer-create-payout`, `truelayer-get-payout`                                                   | Payouts to anything other than an external account (back to a payment source, to a business account), cancelling, listing payouts                   |
 | Merchant accounts                              | 🟡     | `truelayer-get-merchant-account`, `truelayer-list-merchant-accounts`, `truelayer-list-transactions` | Payment sources, sweeping                                                                                                                           |
 | Mandates and variable recurring payments (VRP) | ❌     |                                                                                                     | Creating, getting, listing and revoking mandates, funds checks, constraints, payments under a mandate                                               |
-| Data API (account information)                 | ❌     |                                                                                                     | Accounts, balances, transactions, cards and standing orders, and the user consent flow they require                                                 |
+| Data API v3 (account information, UK)          | ✅     | Connections, user info, accounts, balances, transactions; see [Data API v3 tools](#data-api-v3)     | Connection and transactions request webhooks (the tools poll instead)                                                                               |
+| Data API v1 (legacy)                           | ❌     |                                                                                                     | Superseded by v3. Covers what v3 doesn't yet (cards, standing orders, direct debits, banks outside the UK), but needs a per-user OAuth token flow   |
 | Verification                                   | ❌     |                                                                                                     | Account holder name verification                                                                                                                    |
 | Signup+                                        | ❌     |                                                                                                     | Identity data for onboarding                                                                                                                        |
 | Providers                                      | ❌     |                                                                                                     | Searching for and looking up banks                                                                                                                  |
 | Webhooks                                       | ❌     |                                                                                                     | Status change notifications; the tools poll instead, as a local stdio server can't receive webhooks                                                 |
 
 The payout tools need the `paydirect` token scope, which is only available if Payouts is enabled on your client (see `TRUELAYER_TOKEN_SCOPE` below).
+
+The Data API v3 tools need Data API v3 enabled on your client. They request their own token with the `data` scope, separately from the payments token, so the payments tools keep working on clients without Data.
 
 ## Setup
 
@@ -134,6 +137,7 @@ Once configured, you can ask Claude to perform TrueLayer operations. Here are so
 - "Create a payout of £100 to account number 12345678 with sort code 01-02-03."
 - "Generate a payment link for £50."
 - "List all transactions between 2023-01-01 and 2023-01-31."
+- "Create a data connection for Jane Smith (jane@example.com) returning to https://example.com/done", then, once she has connected her bank: "What did she spend on groceries last month?"
 
 When you ask Claude about these operations, it will use the MCP server to execute them through the TrueLayer API.
 
@@ -160,6 +164,17 @@ Every tool declares MCP annotations so clients can decide when to ask before run
 
 - `truelayer-create-payout` 💸: pay out from a merchant account to an external account
 - `truelayer-get-payout`: details and status of a payout
+
+### Data API v3
+
+Read a user's bank account data (UK banks). First create a connection: the user authorises it on TrueLayer's hosted page (`hosted_page.uri`), choosing their bank, consenting and logging in. Then read their data with the connection ID. Calls made without the user present are rate limited to 4 per day; pass the user's IP address as `user_ip` when they are present.
+
+- `truelayer-data-create-connection`: start a connection with the scopes the user is asked to share (info, accounts, balance, transactions)
+- `truelayer-data-get-user-info`: the user's name as held by their bank
+- `truelayer-data-list-accounts`: the connected accounts, with identifiers and account holder names
+- `truelayer-data-get-balance`: an account's current and available balance and overdraft
+- `truelayer-data-get-transactions`: an account's transactions between two dates, optionally with categories and merchant names; waits for TrueLayer to prepare them
+- `truelayer-data-get-transactions-request`: fetch a transactions result that wasn't ready in time
 
 ## License
 
