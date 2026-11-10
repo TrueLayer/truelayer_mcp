@@ -1,19 +1,10 @@
 import * as tlSigning from "truelayer-signing";
 import { v4 as uuidv4 } from 'uuid';
-import * as auth from "./auth.js";
-import { KID, PRIVATE_KEY_PEM, CLIENT_ID, CLIENT_SECRET, AUTH_URI, BASE_URI } from "./auth.js";
+import { getConfig } from "./config.js";
 
-// Scopes requested for the access token. `paydirect` is needed for the payout
-// tools; clients without Payouts enabled get `invalid_scope` unless they set
-// TOKEN_SCOPE = "payments" in auth.ts. Read through the namespace so existing
-// auth.ts files that don't define it keep working.
-const DEFAULT_TOKEN_SCOPE = 'paydirect payments';
-const tokenScope = (auth as { TOKEN_SCOPE?: string }).TOKEN_SCOPE?.trim() || DEFAULT_TOKEN_SCOPE;
-
-// Configuration with default values that can be overridden
-export const config = {
+// Client behaviour settings; credentials and endpoints come from getConfig().
+export const settings = {
 	userAgent: 'truelayer-mcp/1.0.0',
-	tokenScope,
 	tokenGrantType: 'client_credentials',
 	tokenExpiryFallbackSeconds: 1800, // 30 minutes fallback if expires_in is not present
 	tokenExpiryBufferMs: 60000, // 60 second buffer for token validity check
@@ -59,7 +50,7 @@ const tokenCache = {
 const isTokenValid = (): boolean => {
 	return (
 		tokenCache.token !== null &&
-		tokenCache.expiresAt > Date.now() + config.tokenExpiryBufferMs
+		tokenCache.expiresAt > Date.now() + settings.tokenExpiryBufferMs
 	);
 };
 
@@ -74,7 +65,7 @@ export async function getAccessToken(): Promise<string> {
 
 	// Calculate expiration time in milliseconds
 	// Use the expires_in from the response or fallback to configured value
-	const expiresIn = tokenResponse.expires_in || config.tokenExpiryFallbackSeconds;
+	const expiresIn = tokenResponse.expires_in || settings.tokenExpiryFallbackSeconds;
 	tokenCache.expiresAt = Date.now() + (expiresIn * 1000);
 
 	return tokenCache.token;
@@ -83,28 +74,28 @@ export async function getAccessToken(): Promise<string> {
 export async function generateAccessToken(): Promise<AccessResponse> {
 	const path = "/connect/token";
 	const formData = new URLSearchParams({
-		client_id: CLIENT_ID,
-		client_secret: CLIENT_SECRET,
-		scope: config.tokenScope,
-		grant_type: config.tokenGrantType
+		client_id: getConfig().clientId,
+		client_secret: getConfig().clientSecret,
+		scope: getConfig().tokenScope,
+		grant_type: settings.tokenGrantType
 	}).toString();
 
 	// Headers that will be included in the signature
 	const headers = {
 		'Content-Type': 'application/x-www-form-urlencoded',
-		'User-Agent': config.userAgent
+		'User-Agent': settings.userAgent
 	};
 
 	const signature = tlSigning.sign({
-		kid: KID,
-		privateKeyPem: PRIVATE_KEY_PEM,
+		kid: getConfig().kid,
+		privateKeyPem: getConfig().privateKeyPem,
 		method: tlSigning.HttpMethod.Post,
 		path,
 		headers,
 		body: formData,
 	});
 
-	const response = await fetch(AUTH_URI, {
+	const response = await fetch(getConfig().authUri, {
 		method: 'POST',
 		headers: { ...headers, 'Tl-Signature': signature },
 		body: formData
@@ -114,12 +105,12 @@ export async function generateAccessToken(): Promise<AccessResponse> {
 
 async function apiGet(path: string): Promise<any> {
 	const access_token = await getAccessToken();
-	const response = await fetch(`${BASE_URI}${path}`, {
+	const response = await fetch(`${getConfig().apiUri}${path}`, {
 		method: 'GET',
 		headers: {
 			'Authorization': `Bearer ${access_token}`,
 			'Accept': 'application/json; charset=UTF-8',
-			'User-Agent': config.userAgent
+			'User-Agent': settings.userAgent
 		}
 	});
 	return parseResponse('GET', path, response);
@@ -136,19 +127,19 @@ async function apiSignedPost(path: string, body: unknown): Promise<any> {
 		'Content-Type': 'application/json; charset=UTF-8',
 		'Accept': 'application/json; charset=UTF-8',
 		'Idempotency-Key': uuidv4(),
-		'User-Agent': config.userAgent
+		'User-Agent': settings.userAgent
 	};
 
 	const signature = tlSigning.sign({
-		kid: KID,
-		privateKeyPem: PRIVATE_KEY_PEM,
+		kid: getConfig().kid,
+		privateKeyPem: getConfig().privateKeyPem,
 		method: tlSigning.HttpMethod.Post,
 		path,
 		headers,
 		body: bodyStr,
 	});
 
-	const response = await fetch(`${BASE_URI}${path}`, {
+	const response = await fetch(`${getConfig().apiUri}${path}`, {
 		method: 'POST',
 		headers: { ...headers, 'Tl-Signature': signature },
 		body: bodyStr

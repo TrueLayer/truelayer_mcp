@@ -2,9 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { config, getPayout, getPayment, getPaymentLink, createPayout, createPaymentLink, listTransactions, getMerchantAccount, listMerchantAccounts } from "./truelayer.js";
+import { settings, getPayout, getPayment, getPaymentLink, createPayout, createPaymentLink, listTransactions, getMerchantAccount, listMerchantAccounts } from "./truelayer.js";
 import { v4 as uuidv4 } from 'uuid';
-import { CLIENT_ID, MERCHANT_ACCOUNT_ID } from "./auth.js";
+import { ConfigError, getConfig } from "./config.js";
 
 
 // Create server instance
@@ -44,8 +44,8 @@ server.registerTool(
 	},
 	({ merchant_account_id }) =>
 		run("Merchant account", "Failed to retrieve merchant account", async () => ({
-			client_id: CLIENT_ID,
-			...(await getMerchantAccount(merchant_account_id || MERCHANT_ACCOUNT_ID)),
+			client_id: getConfig().clientId,
+			...(await getMerchantAccount(merchant_account_id || getConfig().merchantAccountId)),
 		}))
 )
 
@@ -122,7 +122,7 @@ server.registerTool(
 	({ amount_in_minor, merchant_account_id, currency, expires_in_hours, user }) =>
 		run("Payment link created successfully", "Failed to create payment link", () => {
 			// Calculate expiry time using the config or override parameter
-			const expiryHours = expires_in_hours || config.paymentLinkExpiryHours;
+			const expiryHours = expires_in_hours || settings.paymentLinkExpiryHours;
 			const expiryTime = new Date(Date.now() + expiryHours * 60 * 60 * 1000).toISOString();
 
 			return createPaymentLink({
@@ -204,6 +204,16 @@ server.registerTool(
 )
 
 async function main() {
+	// Validate configuration before accepting requests, so a missing setting
+	// fails at startup with a clear message instead of on the first tool call.
+	try {
+		const { environment } = getConfig();
+		console.error(`Truelayer MCP using the ${environment} environment`);
+	} catch (error) {
+		console.error(error instanceof ConfigError ? error.message : error);
+		process.exit(1);
+	}
+
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
 	console.error("Truelayer MCP server running on stdio");

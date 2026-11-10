@@ -34,7 +34,7 @@ Here are specific TrueLayer functions that an AI assistant can call for you once
 
 ### Prerequisites
 
-- Node.js (v18 or later)
+- Node.js (v22 or later)
 - npm or yarn
 - A TrueLayer account with API credentials
 
@@ -51,22 +51,24 @@ cd truelayer_mcp
 npm install
 ```
 
-3. Configure your TrueLayer credentials:
-   - Copy `src/auth.example.ts` to `src/auth.ts`
-   - Fill in your TrueLayer credentials (KID, private key, client ID, client secret, and merchant account ID)
-
-```typescript
-export const KID = "your-key-id"; 
-export const PRIVATE_KEY_PEM = `your-private-key-in-pem-format`
-export const CLIENT_ID = "your-client-id";
-export const CLIENT_SECRET = "your-client-secret";
-export const MERCHANT_ACCOUNT_ID = "your-merchant-account-id";
-
-export const AUTH_URI = "https://auth.truelayer.com/connect/token";
-export const BASE_URI = "https://api.truelayer.com";
+3. Configure your TrueLayer credentials. The server reads them from environment variables, or from a `.env` file in the project root (next to `package.json`):
+```bash
+cp .env.example .env
 ```
+   Fill in `.env`:
 
-   The server requests the `paydirect payments` token scopes by default. If Payouts isn't enabled on your client, the token request fails with `invalid_scope`; set `export const TOKEN_SCOPE = "payments";` in `src/auth.ts` to use the payment and payment link tools without it.
+| Variable | Required | Description |
+|---|---|---|
+| `TRUELAYER_ENV` | no | `sandbox` (default) or `production` |
+| `TRUELAYER_CLIENT_ID` | yes | Client ID from the Console |
+| `TRUELAYER_CLIENT_SECRET` or `TRUELAYER_CLIENT_SECRET_FILE` | yes | Client secret, inline or as a path to a file containing it |
+| `TRUELAYER_KID` | yes | Key ID of the signing public key uploaded to the Console |
+| `TRUELAYER_PRIVATE_KEY_FILE` or `TRUELAYER_PRIVATE_KEY` | yes | EC P-521 signing private key, as a path or inline PEM (`\n` for line breaks) |
+| `TRUELAYER_MERCHANT_ACCOUNT_ID` | yes | Default merchant account for the tools |
+| `TRUELAYER_TOKEN_SCOPE` | no | Token scopes, default `paydirect payments`. Use `payments` if Payouts isn't enabled on your client (the token request otherwise fails with `invalid_scope`). |
+| `TRUELAYER_ENV_FILE` | no | Load the `.env` file from another path |
+
+   Variables already set in the environment take precedence over `.env`. The server checks the configuration at startup and exits listing anything missing. `.env` is gitignored; prefer the `_FILE` variants so secrets stay in files only you can read (`chmod 600`).
 
 4. Build the project:
 ```bash
@@ -96,7 +98,7 @@ To use this MCP server with Claude Desktop:
 }
 ```
 
-Replace `/path/to/truelayer_mcp` with the actual path to this project on your system.
+Replace `/path/to/truelayer_mcp` with the actual path to this project on your system. The server picks up `.env` from the project root wherever the client starts it; alternatively, pass the variables in the server's `"env"` block, which overrides `.env`.
 
 ## Using with Claude
 
