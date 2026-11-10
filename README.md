@@ -137,3 +137,7 @@ The MCP server exposes these tools:
 - `truelayer-create-payout`: Create a new payout to an external account
 - `truelayer-create-payment-link`: Create a payment link for bank transfers
 - `truelayer-list-transactions`: Get a list of transactions for a merchant account (defaults to the last 30 days if no dates provided)
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -8,7 +8,7 @@
     "truelayer",
     "open-banking"
   ],
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "truelayer-signing": "^0.2.3",
