@@ -2,7 +2,6 @@
 
 An experimental project connecting TrueLayer APIs and an AI assistant, like Claude AI.
 
-
 This project provides a Truelayer Model Context Protocol (MCP) server that enables an AI assistant, like Claude AI, to interact with TrueLayer's financial APIs. It allows the AI assistant to perform various banking and payment operations through TrueLayer's services.
 
 > ⚠️ **DISCLAIMER** ⚠️
@@ -13,22 +12,32 @@ This project provides a Truelayer Model Context Protocol (MCP) server that enabl
 
 > By using this MCP server with an external LLM you are trusting an external third party with the handling of the data retrieved from the TrueLayer API.
 
-
-
 ## Features
+
 The integration allows an AI assistant to execute some of the TrueLayer actions directly from the assistant chat.
 
 These functions allow you to perform common payment operations like retrieving account information, creating payment links for customers, sending payouts to beneficiaries, and reviewing transaction history.
 
 Given that AI assistants may not always produce deterministic behaviors, and for safe and isolated testing, we recommend testing the MCP server in the TrueLayer Sandbox environment.
 
-Here are specific TrueLayer functions that an AI assistant can call for you once the MCP server is installed:
+### Product coverage
 
-- Get merchant account details and balances, and list merchant accounts
-- List transaction history
-- Create payouts to external accounts
-- Generate payment links for banking transactions
-- Retrieve payment and payment link details
+The server covers part of the TrueLayer API. 🟡 means some operations are available and others aren't; ❌ means the product isn't covered at all. The "Not covered" column lists the main gaps and isn't exhaustive; see the [TrueLayer API reference](https://docs.truelayer.com/reference) for everything each product offers.
+
+| Product                                        | Status | Tools                                                                                               | Not covered                                                                                                                                         |
+| ---------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payments                                       | 🟡     | `truelayer-get-payment`                                                                             | Creating a payment directly (outside a payment link), choosing the bank for the user, the authorization flow, cancelling, refunds, listing payments |
+| Payment links                                  | 🟡     | `truelayer-create-payment-link`, `truelayer-get-payment-link`                                       | Links other than single payments, listing a link's payments, disabling a link                                                                       |
+| Payouts                                        | 🟡     | `truelayer-create-payout`, `truelayer-get-payout`                                                   | Payouts to anything other than an external account (back to a payment source, to a business account), cancelling, listing payouts                   |
+| Merchant accounts                              | 🟡     | `truelayer-get-merchant-account`, `truelayer-list-merchant-accounts`, `truelayer-list-transactions` | Payment sources, sweeping                                                                                                                           |
+| Mandates and variable recurring payments (VRP) | ❌     |                                                                                                     | Creating, getting, listing and revoking mandates, funds checks, constraints, payments under a mandate                                               |
+| Data API (account information)                 | ❌     |                                                                                                     | Accounts, balances, transactions, cards and standing orders, and the user consent flow they require                                                 |
+| Verification                                   | ❌     |                                                                                                     | Account holder name verification                                                                                                                    |
+| Signup+                                        | ❌     |                                                                                                     | Identity data for onboarding                                                                                                                        |
+| Providers                                      | ❌     |                                                                                                     | Searching for and looking up banks                                                                                                                  |
+| Webhooks                                       | ❌     |                                                                                                     | Status change notifications; the tools poll instead, as a local stdio server can't receive webhooks                                                 |
+
+The payout tools need the `paydirect` token scope, which is only available if Payouts is enabled on your client (see `TRUELAYER_TOKEN_SCOPE` below).
 
 ## Setup
 
@@ -55,24 +64,33 @@ npm install
 ```bash
 cp .env.example .env
 ```
-   Fill in `.env`:
+Fill in `.env`:
 
-| Variable | Required | Description |
-|---|---|---|
-| `TRUELAYER_ENV` | no | `sandbox` (default) or `production` |
-| `TRUELAYER_CLIENT_ID` | yes | Client ID from the Console |
-| `TRUELAYER_CLIENT_SECRET` or `TRUELAYER_CLIENT_SECRET_FILE` | yes | Client secret, inline or as a path to a file containing it |
-| `TRUELAYER_KID` | yes | Key ID of the signing public key uploaded to the Console |
-| `TRUELAYER_PRIVATE_KEY_FILE` or `TRUELAYER_PRIVATE_KEY` | yes | EC P-521 signing private key, as a path or inline PEM (`\n` for line breaks) |
-| `TRUELAYER_MERCHANT_ACCOUNT_ID` | yes | Default merchant account for the tools |
-| `TRUELAYER_TOKEN_SCOPE` | no | Token scopes, default `paydirect payments`. Use `payments` if Payouts isn't enabled on your client (the token request otherwise fails with `invalid_scope`). |
-| `TRUELAYER_ENV_FILE` | no | Load the `.env` file from another path |
+| Variable                                                    | Required | Description                                                                                                                                                  |
+| ----------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TRUELAYER_ENV`                                             | no       | `sandbox` (default) or `production`                                                                                                                          |
+| `TRUELAYER_CLIENT_ID`                                       | yes      | Client ID from the Console                                                                                                                                   |
+| `TRUELAYER_CLIENT_SECRET` or `TRUELAYER_CLIENT_SECRET_FILE` | yes      | Client secret, inline or as a path to a file containing it                                                                                                   |
+| `TRUELAYER_KID`                                             | yes      | Key ID of the signing public key uploaded to the Console                                                                                                     |
+| `TRUELAYER_PRIVATE_KEY_FILE` or `TRUELAYER_PRIVATE_KEY`     | yes      | EC P-521 signing private key, as a path or inline PEM (`\n` for line breaks)                                                                                 |
+| `TRUELAYER_MERCHANT_ACCOUNT_ID`                             | yes      | Default merchant account for the tools                                                                                                                       |
+| `TRUELAYER_TOKEN_SCOPE`                                     | no       | Token scopes, default `paydirect payments`. Use `payments` if Payouts isn't enabled on your client (the token request otherwise fails with `invalid_scope`). |
+| `TRUELAYER_ENV_FILE`                                        | no       | Load the `.env` file from another path                                                                                                                       |
 
-   Variables already set in the environment take precedence over `.env`. The server checks the configuration at startup and exits listing anything missing. `.env` is gitignored; prefer the `_FILE` variants so secrets stay in files only you can read (`chmod 600`).
+Variables already set in the environment take precedence over `.env`. The server checks the configuration at startup and exits listing anything missing. `.env` is gitignored; prefer the `_FILE` variants so secrets stay in files only you can read (`chmod 600`).
 
 4. Build the project:
 ```bash
 npm run build
+```
+
+## Development
+
+The project uses [Biome](https://biomejs.dev) for linting and formatting:
+
+```bash
+npm run lint   # check lint and formatting
+npm run fix    # apply safe fixes and format
 ```
 
 ## Configuration with Claude Desktop
@@ -87,14 +105,12 @@ To use this MCP server with Claude Desktop:
 
 ```json
 {
-  "mcpServers": {
-    "truelayer": {
-      "command": "node",
-      "args": [
-        "/path/to/truelayer_mcp/build/index.js"
-      ]
-    }
-  }
+	"mcpServers": {
+		"truelayer": {
+			"command": "node",
+			"args": ["/path/to/truelayer_mcp/build/index.js"]
+		}
+	}
 }
 ```
 
