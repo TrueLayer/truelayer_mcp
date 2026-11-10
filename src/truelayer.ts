@@ -1,11 +1,19 @@
 import * as tlSigning from "truelayer-signing";
 import { v4 as uuidv4 } from 'uuid';
+import * as auth from "./auth.js";
 import { KID, PRIVATE_KEY_PEM, CLIENT_ID, CLIENT_SECRET, AUTH_URI, BASE_URI } from "./auth.js";
+
+// Scopes requested for the access token. `paydirect` is needed for the payout
+// tools; clients without Payouts enabled get `invalid_scope` unless they set
+// TOKEN_SCOPE = "payments" in auth.ts. Read through the namespace so existing
+// auth.ts files that don't define it keep working.
+const DEFAULT_TOKEN_SCOPE = 'paydirect payments';
+const tokenScope = (auth as { TOKEN_SCOPE?: string }).TOKEN_SCOPE?.trim() || DEFAULT_TOKEN_SCOPE;
 
 // Configuration with default values that can be overridden
 export const config = {
 	userAgent: 'truelayer-mcp/1.0.0',
-	tokenScope: 'paydirect payments',
+	tokenScope,
 	tokenGrantType: 'client_credentials',
 	tokenExpiryFallbackSeconds: 1800, // 30 minutes fallback if expires_in is not present
 	tokenExpiryBufferMs: 60000, // 60 second buffer for token validity check

@@ -7,3 +7,7 @@ export const MERCHANT_ACCOUNT_ID = ""; // Your merchant account ID from TrueLaye
 
 export const AUTH_URI = "https://auth.truelayer.com/connect/token"; // The authorization URL for TrueLayer
 export const BASE_URI = "https://api.truelayer.com"; // The base URL for TrueLayer API
+
+// Optional: token scopes. Defaults to "paydirect payments". Use "payments" if
+// Payouts isn't enabled on your client; the payout tools will then fail.
+// export const TOKEN_SCOPE = "payments";

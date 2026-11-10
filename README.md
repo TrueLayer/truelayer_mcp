@@ -66,6 +66,8 @@ export const AUTH_URI = "https://auth.truelayer.com/connect/token";
 export const BASE_URI = "https://api.truelayer.com";
 ```
 
+   The server requests the `paydirect payments` token scopes by default. If Payouts isn't enabled on your client, the token request fails with `invalid_scope`; set `export const TOKEN_SCOPE = "payments";` in `src/auth.ts` to use the payment and payment link tools without it.
+
 4. Build the project:
 ```bash
 npm run build
