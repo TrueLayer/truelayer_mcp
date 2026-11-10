@@ -86,12 +86,23 @@ npm run build
 
 ## Development
 
-The project uses [Biome](https://biomejs.dev) for linting and formatting:
-
 ```bash
-npm run lint   # check lint and formatting
-npm run fix    # apply safe fixes and format
+npm test               # build, then run the test suite against a local mock of TrueLayer
+npm run test:sandbox   # build, then run read-only checks against the real sandbox using your .env
+npm run lint           # check lint and formatting with Biome
+npm run fix            # apply safe fixes and format
 ```
+
+The tests start the built server over stdio, the way an MCP client does, and point it at a mock TrueLayer server (`test/helpers/mock-truelayer.js`). The mock checks the `Tl-Signature` on signed requests against the test key, so signing regressions fail the tests. They never use your `.env`.
+
+Code layout:
+
+- `src/index.ts`: entry point; checks the configuration and starts the stdio server
+- `src/config.ts`: environment and `.env` configuration
+- `src/server.ts`: creates the MCP server and registers every tool module
+- `src/api/client.ts`: access tokens (cached per scope), request signing, idempotency keys and error handling
+- `src/api/<product>.ts`: one module per TrueLayer product, wrapping its endpoints
+- `src/tools/<product>.ts`: one module per product, defining its MCP tools; `src/tools/shared.ts` has the annotation presets
 
 ## Configuration with Claude Desktop
 
@@ -128,15 +139,27 @@ When you ask Claude about these operations, it will use the MCP server to execut
 
 ## Available Tools
 
-The MCP server exposes these tools:
+Every tool declares MCP annotations so clients can decide when to ask before running it: read-only tools set `readOnlyHint`, and tools that move money or can't be undone set `destructiveHint` (marked 💸 below). Tools that create something accept an optional `idempotency_key`; reuse it when retrying, so TrueLayer doesn't perform the operation twice.
 
-- `truelayer-get-merchant-account`: Retrieve merchant account details
-- `truelayer-get-payment`: Get details of a specific payment
-- `truelayer-get-payment-link`: Get details of a specific payment link
-- `truelayer-get-payout`: Get details of a specific payout
-- `truelayer-create-payout`: Create a new payout to an external account
-- `truelayer-create-payment-link`: Create a payment link for bank transfers
-- `truelayer-list-transactions`: Get a list of transactions for a merchant account (defaults to the last 30 days if no dates provided)
+### Merchant accounts
+
+- `truelayer-get-merchant-account`: details and balances of a merchant account (defaults to the configured one)
+- `truelayer-list-merchant-accounts`: all merchant accounts available to the client
+- `truelayer-list-transactions`: transactions for a merchant account (defaults to the last 30 days)
+
+### Payments
+
+- `truelayer-get-payment`: details and status of a payment
+
+### Payment links
+
+- `truelayer-create-payment-link`: create a single-payment link to your merchant account
+- `truelayer-get-payment-link`: details and status of a payment link
+
+### Payouts
+
+- `truelayer-create-payout` 💸: pay out from a merchant account to an external account
+- `truelayer-get-payout`: details and status of a payout
 
 ## License
 
